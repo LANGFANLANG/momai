@@ -5,4 +5,6 @@ from app.main import create_app
 
 def test_health_endpoint_returns_ok():
     client = TestClient(create_app())
-    assert client.get("/api/health").json() == {"status": "ok"}
+    response = client.get("/api/health")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
