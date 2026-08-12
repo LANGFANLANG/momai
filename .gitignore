@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+
+node_modules/
+dist/
+
+backend/.env
+backend/exports/
+
+.superpowers/
+.worktrees/
+worktrees/
