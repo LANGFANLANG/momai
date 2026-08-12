@@ -63,4 +63,24 @@ def test_project_crud():
     delete_response = client.delete(f"/api/projects/{project_id}")
 
     assert delete_response.status_code == 204
-    assert client.get(f"/api/projects/{project_id}").status_code == 404
+    missing_response = client.get(f"/api/projects/{project_id}")
+    assert missing_response.status_code == 404
+    assert missing_response.json() == {"detail": "Project not found"}
+
+
+def test_project_patch_rejects_invalid_or_null_required_fields():
+    client = create_client()
+    create_response = client.post(
+        "/api/projects",
+        json={"type": "thesis", "title": "LifePilot Thesis", "language": "zh"},
+    )
+    project_id = create_response.json()["id"]
+
+    for payload in (
+        {"title": None},
+        {"type": "invalid"},
+        {"status": "invalid"},
+    ):
+        response = client.patch(f"/api/projects/{project_id}", json=payload)
+
+        assert response.status_code == 422

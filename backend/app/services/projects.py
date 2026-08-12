@@ -31,7 +31,7 @@ class ProjectService:
         return project
 
     @classmethod
-    def update_project(db: Session, project_id: str, payload: ProjectUpdate) -> Project:
+    def update_project(cls, db: Session, project_id: str, payload: ProjectUpdate) -> Project:
         project = cls.get_project_or_404(db, project_id)
         for field, value in payload.model_dump(exclude_unset=True).items():
             setattr(project, field, value)
