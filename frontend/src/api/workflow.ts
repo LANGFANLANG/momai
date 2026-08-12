@@ -18,8 +18,11 @@ const json = (method: string, body?: unknown): RequestInit => ({
 })
 
 export const workflowApi = {
-  generateOutline: (projectId: string, outlinePreference?: string) =>
-    request<Chapter[]>(`/api/projects/${projectId}/outline/generate`, json('POST', { outline_preference: outlinePreference })),
+  generateOutline: (projectId: string, outlinePreference?: string, force = false) =>
+    request<Chapter[]>(
+      `/api/projects/${projectId}/outline/generate`,
+      json('POST', { outline_preference: outlinePreference, force }),
+    ),
   listChapters: (projectId: string) => request<Chapter[]>(`/api/projects/${projectId}/outline`),
   updateChapter: (projectId: string, chapterId: string, payload: ChapterUpdate) =>
     request<Chapter>(`/api/projects/${projectId}/outline/${chapterId}`, json('PATCH', payload)),

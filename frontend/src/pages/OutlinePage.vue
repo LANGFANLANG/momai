@@ -1,9 +1,156 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'; import { useRoute } from 'vue-router'; import AppButton from '@/components/ui/AppButton.vue'; import { useChapterStore } from '@/stores/chapter'; import { workflowApi } from '@/api/workflow'
-const projectId = String(useRoute().params.projectId); const store = useChapterStore(); const busy = ref(false); const message = ref(''); const preference = ref(''); const chapters = computed(() => store.chapters)
-async function load() { try { await store.loadChapters(projectId) } catch { message.value = '暂未生成大纲' } }
-async function generate() { busy.value = true; message.value = ''; try { store.chapters = await workflowApi.generateOutline(projectId, preference.value); message.value = '大纲已生成' } catch (e) { message.value = e instanceof Error ? e.message : '生成失败' } finally { busy.value = false } }
-async function save() { busy.value = true; try { await Promise.all(chapters.value.map(({ id, title, level, purpose, suggested_word_count, status, order }) => workflowApi.updateChapter(projectId, id, { title, level, purpose, suggested_word_count, status, order }))); message.value = '大纲已保存' } catch (e) { message.value = e instanceof Error ? e.message : '保存失败' } finally { busy.value = false } }
+import { computed, onMounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
+import AppButton from '@/components/ui/AppButton.vue'
+import { HttpError } from '@/api/http'
+import { useChapterStore } from '@/stores/chapter'
+import { workflowApi } from '@/api/workflow'
+
+const projectId = String(useRoute().params.projectId)
+const store = useChapterStore()
+const busy = ref(false)
+const message = ref('')
+const preference = ref('')
+const chapters = computed(() => store.chapters)
+
+async function load() {
+  try {
+    await store.loadChapters(projectId)
+  } catch {
+    message.value = '暂未生成大纲'
+  }
+}
+
+async function generate(force = false) {
+  busy.value = true
+  message.value = ''
+  try {
+    store.chapters = await workflowApi.generateOutline(projectId, preference.value, force)
+    message.value = '大纲已生成'
+  } catch (error) {
+    if (
+      !force
+      && error instanceof HttpError
+      && error.status === 409
+      && window.confirm(`${error.message}\n\n确认删除已有章节关系、草稿和摘要，并强制重新生成大纲吗？`)
+    ) {
+      busy.value = false
+      await generate(true)
+      return
+    }
+    message.value = error instanceof Error ? error.message : '生成失败'
+  } finally {
+    busy.value = false
+  }
+}
+
+async function save() {
+  busy.value = true
+  try {
+    await Promise.all(chapters.value.map(({
+      id,
+      title,
+      level,
+      purpose,
+      suggested_word_count,
+      status,
+      order,
+    }) => workflowApi.updateChapter(projectId, id, {
+      title,
+      level,
+      purpose,
+      suggested_word_count,
+      status,
+      order,
+    })))
+    message.value = '大纲已保存'
+  } catch (error) {
+    message.value = error instanceof Error ? error.message : '保存失败'
+  } finally {
+    busy.value = false
+  }
+}
+
 onMounted(load)
 </script>
-<template><section><div class="mb-6 flex flex-wrap items-end justify-between gap-4"><div><p class="page-kicker">02 / OUTLINE</p><h2 class="page-heading">文章大纲</h2><p class="page-copy mt-2">调整章节职责和篇幅，再进入逐章写作。</p></div><div class="flex gap-2"><AppButton variant="secondary" :loading="busy" @click="save">保存大纲</AppButton><AppButton :loading="busy" @click="generate">生成大纲</AppButton></div></div><div class="panel mb-4 p-4"><label class="field-label">生成偏好</label><textarea v-model="preference" class="field-control" rows="2" placeholder="例如：采用五章结构，突出实验比较与工程实现。" /></div><p v-if="message" class="mb-4 text-sm text-teal-800">{{ message }}</p><div class="overflow-x-auto panel"><table class="w-full min-w-[760px] border-collapse"><thead><tr class="table-head"><th class="px-3 py-3">章节</th><th>层级</th><th>写作目的</th><th>建议字数</th><th>状态</th></tr></thead><tbody><tr v-for="chapter in chapters" :key="chapter.id"><td class="table-cell"><input v-model="chapter.title" class="w-full border-0 bg-transparent p-0 font-medium outline-none focus:text-teal-800" :style="{ paddingLeft: `${(chapter.level - 1) * 18}px` }" /></td><td class="table-cell"><input v-model.number="chapter.level" class="w-12 border border-stone-200 px-1 py-1" type="number" min="1" /></td><td class="table-cell"><input v-model="chapter.purpose" class="w-full border border-stone-200 px-2 py-1" /></td><td class="table-cell"><input v-model.number="chapter.suggested_word_count" class="w-20 border border-stone-200 px-2 py-1" type="number" /></td><td class="table-cell"><select v-model="chapter.status" class="border border-stone-200 bg-white px-2 py-1 text-xs"><option value="planned">计划中</option><option value="relation_ready">关系就绪</option><option value="drafting">写作中</option><option value="drafted">已成稿</option></select></td></tr><tr v-if="!chapters.length"><td colspan="5" class="px-3 py-10 text-center text-sm text-stone-500">填写偏好后生成第一版大纲。</td></tr></tbody></table></div></section></template>
+
+<template>
+  <section>
+    <div class="mb-6 flex flex-wrap items-end justify-between gap-4">
+      <div>
+        <p class="page-kicker">02 / OUTLINE</p>
+        <h2 class="page-heading">文章大纲</h2>
+        <p class="page-copy mt-2">调整章节职责和篇幅，再进入逐章写作。</p>
+      </div>
+      <div class="flex gap-2">
+        <AppButton variant="secondary" :loading="busy" @click="save">保存大纲</AppButton>
+        <AppButton :loading="busy" @click="generate()">生成大纲</AppButton>
+      </div>
+    </div>
+    <div class="panel mb-4 p-4">
+      <label class="field-label">生成偏好</label>
+      <textarea
+        v-model="preference"
+        class="field-control"
+        rows="2"
+        placeholder="例如：采用五章结构，突出实验比较与工程实现。"
+      />
+    </div>
+    <p v-if="message" class="mb-4 text-sm text-teal-800">{{ message }}</p>
+    <div class="panel overflow-x-auto">
+      <table class="w-full min-w-[760px] border-collapse">
+        <thead>
+          <tr class="table-head">
+            <th class="px-3 py-3">章节</th>
+            <th>层级</th>
+            <th>写作目的</th>
+            <th>建议字数</th>
+            <th>状态</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="chapter in chapters" :key="chapter.id">
+            <td class="table-cell">
+              <input
+                v-model="chapter.title"
+                class="w-full border-0 bg-transparent p-0 font-medium outline-none focus:text-teal-800"
+                :style="{ paddingLeft: `${(chapter.level - 1) * 18}px` }"
+              />
+            </td>
+            <td class="table-cell">
+              <input
+                v-model.number="chapter.level"
+                class="w-12 border border-stone-200 px-1 py-1"
+                type="number"
+                min="1"
+              />
+            </td>
+            <td class="table-cell">
+              <input v-model="chapter.purpose" class="w-full border border-stone-200 px-2 py-1" />
+            </td>
+            <td class="table-cell">
+              <input
+                v-model.number="chapter.suggested_word_count"
+                class="w-20 border border-stone-200 px-2 py-1"
+                type="number"
+              />
+            </td>
+            <td class="table-cell">
+              <select v-model="chapter.status" class="border border-stone-200 bg-white px-2 py-1 text-xs">
+                <option value="planned">计划中</option>
+                <option value="relation_ready">关系就绪</option>
+                <option value="drafting">写作中</option>
+                <option value="drafted">已成稿</option>
+              </select>
+            </td>
+          </tr>
+          <tr v-if="!chapters.length">
+            <td colspan="5" class="px-3 py-10 text-center text-sm text-stone-500">
+              填写偏好后生成第一版大纲。
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+</template>

@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from app.db.models import Chapter, ChapterDraft, ChapterSummary
 from app.db.session import get_db
 from app.schemas.workflow import ChapterDraftRead, ChapterDraftUpdate, ChapterSummaryRead, DraftGenerateRequest
-from app.services.generation import GenerationService
+from app.services.generation import ChapterDraftRequired, GenerationService
 
 router = APIRouter(prefix="/api/chapters", tags=["chapters"])
 DbSession = Annotated[Session, Depends(get_db)]
@@ -46,7 +46,10 @@ def update_draft(chapter_id: str, draft_id: str, payload: ChapterDraftUpdate, db
 @router.post("/{chapter_id}/summary/generate", response_model=ChapterSummaryRead)
 def generate_summary(chapter_id: str, db: DbSession):
     _chapter_or_404(db, chapter_id)
-    return GenerationService.generate_summary(db, chapter_id)
+    try:
+        return GenerationService.generate_summary(db, chapter_id)
+    except ChapterDraftRequired as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
 
 
 @router.get("/{chapter_id}/summary", response_model=ChapterSummaryRead)

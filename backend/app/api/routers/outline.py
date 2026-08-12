@@ -1,13 +1,13 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.models import Chapter
 from app.db.session import get_db
 from app.schemas.workflow import ChapterRead, ChapterUpdate, OutlineGenerateRequest
-from app.services.generation import GenerationService
+from app.services.chapters import list_chapters_in_hierarchy_order
+from app.services.generation import GenerationService, OutlineRegenerationConflict
 from app.services.projects import ProjectService
 
 router = APIRouter(prefix="/api/projects/{project_id}/outline", tags=["outline"])
@@ -16,13 +16,21 @@ DbSession = Annotated[Session, Depends(get_db)]
 
 @router.post("/generate", response_model=list[ChapterRead])
 def generate_outline(project_id: str, payload: OutlineGenerateRequest, db: DbSession):
-    return GenerationService.generate_outline(db, project_id, payload.outline_preference)
+    try:
+        return GenerationService.generate_outline(
+            db,
+            project_id,
+            outline_preference=payload.outline_preference,
+            force=payload.force,
+        )
+    except OutlineRegenerationConflict as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
 
 
 @router.get("", response_model=list[ChapterRead])
 def list_outline(project_id: str, db: DbSession):
     ProjectService.get_project_or_404(db, project_id)
-    return list(db.scalars(select(Chapter).where(Chapter.project_id == project_id).order_by(Chapter.order)))
+    return list_chapters_in_hierarchy_order(db, project_id)
 
 
 @router.patch("/{chapter_id}", response_model=ChapterRead)

@@ -30,7 +30,11 @@ function loadDraft(draftId: string) {
   savedContent.value = draft.content
 }
 function chooseDraft(draftId: string) {
-  if (draftId !== selectedDraftId.value && isDirty.value && !window.confirm('当前草稿尚未保存，仍要切换版本吗？')) return
+  if (
+    draftId !== selectedDraftId.value
+    && isDirty.value
+    && !window.confirm('当前草稿尚未保存，仍要切换版本吗？')
+  ) return
   loadDraft(draftId)
 }
 async function choose(id: string) {
@@ -41,39 +45,188 @@ async function choose(id: string) {
     const chapterDrafts = await store.loadDrafts(id)
     const latest = chapterDrafts[0]
     if (latest) loadDraft(latest.id)
-    else { selectedDraftId.value = ''; content.value = ''; savedContent.value = '' }
+    else {
+      selectedDraftId.value = ''
+      content.value = ''
+      savedContent.value = ''
+    }
   } catch {
-    selectedDraftId.value = ''; content.value = ''; savedContent.value = ''
+    selectedDraftId.value = ''
+    content.value = ''
+    savedContent.value = ''
   }
 }
 async function saveDraft() {
   if (!selectedId.value || !selectedDraftId.value || !isDirty.value) return
   busy.value = true
-  try { const draft = await store.updateDraft(selectedId.value, selectedDraftId.value, content.value); savedContent.value = draft.content; message.value = `版本 ${draft.version} 已保存` }
-  catch (error) { message.value = error instanceof Error ? error.message : '保存失败' }
-  finally { busy.value = false }
+  try {
+    const draft = await store.updateDraft(selectedId.value, selectedDraftId.value, content.value)
+    savedContent.value = draft.content
+    message.value = `版本 ${draft.version} 已保存`
+  } catch (error) {
+    message.value = error instanceof Error ? error.message : '保存失败'
+  } finally {
+    busy.value = false
+  }
 }
 async function generate() {
   if (!selectedId.value) return
   if (isDirty.value && !window.confirm('当前草稿尚未保存，生成新版本会放弃这些编辑。继续吗？')) return
-  busy.value = true; message.value = ''
-  try { const draft = await workflowApi.generateDraft(selectedId.value, mode.value, instruction.value); store.drafts[selectedId.value] = [draft, ...(store.drafts[selectedId.value] || [])]; loadDraft(draft.id); message.value = `已生成第 ${draft.version} 版草稿` }
-  catch (error) { message.value = error instanceof Error ? error.message : '生成失败' }
-  finally { busy.value = false }
+  busy.value = true
+  message.value = ''
+  try {
+    const draft = await workflowApi.generateDraft(selectedId.value, mode.value, instruction.value)
+    store.drafts[selectedId.value] = [draft, ...(store.drafts[selectedId.value] || [])]
+    loadDraft(draft.id)
+    message.value = `已生成第 ${draft.version} 版草稿`
+  } catch (error) {
+    message.value = error instanceof Error ? error.message : '生成失败'
+  } finally {
+    busy.value = false
+  }
 }
-async function summary() { if (!selectedId.value) return; busy.value = true; try { await store.generateSummary(selectedId.value); message.value = '章节摘要已生成' } catch (error) { message.value = error instanceof Error ? error.message : '摘要生成失败' } finally { busy.value = false } }
-onMounted(async () => { await store.loadChapters(projectId); if (selectedId.value && store.chapters.some(chapter => chapter.id === selectedId.value)) await choose(selectedId.value); else if (store.chapters[0]) await choose(store.chapters[0].id) })
-watch(() => route.params.chapterId, id => { if (id && String(id) !== selectedId.value) choose(String(id)) })
+async function summary() {
+  if (!selectedId.value || !selectedDraftId.value) return
+  busy.value = true
+  try {
+    await store.generateSummary(selectedId.value)
+    message.value = '章节摘要已生成'
+  } catch (error) {
+    message.value = error instanceof Error ? error.message : '摘要生成失败'
+  } finally {
+    busy.value = false
+  }
+}
+onMounted(async () => {
+  await store.loadChapters(projectId)
+  if (selectedId.value && store.chapters.some(chapter => chapter.id === selectedId.value)) {
+    await choose(selectedId.value)
+  } else if (store.chapters[0]) {
+    await choose(store.chapters[0].id)
+  }
+})
+watch(() => route.params.chapterId, id => {
+  if (id && String(id) !== selectedId.value) choose(String(id))
+})
 </script>
 
 <template>
   <section>
-    <div class="mb-6 flex flex-wrap items-end justify-between gap-4"><div><p class="page-kicker">04 / WRITING</p><h2 class="page-heading">章节写作</h2><p class="page-copy mt-2">基于大纲与章节关系生成草稿，并保留版本记录。</p></div><AppButton variant="secondary" :loading="busy" @click="summary">生成章节摘要</AppButton></div>
-    <p v-if="message" class="mb-4 text-sm" :class="message.includes('失败') ? 'text-red-700' : 'text-teal-800'">{{ message }}</p>
+    <div class="mb-6 flex flex-wrap items-end justify-between gap-4">
+      <div>
+        <p class="page-kicker">04 / WRITING</p>
+        <h2 class="page-heading">章节写作</h2>
+        <p class="page-copy mt-2">基于大纲与章节关系生成草稿，并保留版本记录。</p>
+      </div>
+      <AppButton
+        variant="secondary"
+        :loading="busy"
+        :disabled="!selectedDraftId"
+        title="需要先生成或选择一个草稿版本"
+        @click="summary"
+      >
+        生成章节摘要
+      </AppButton>
+    </div>
+    <p
+      v-if="message"
+      class="mb-4 text-sm"
+      :class="message.includes('失败') ? 'text-red-700' : 'text-teal-800'"
+    >
+      {{ message }}
+    </p>
     <div class="grid gap-4 xl:grid-cols-[200px_minmax(0,1fr)_220px]">
-      <aside class="panel"><p class="panel-heading">大纲</p><button v-for="chapter in store.chapters" :key="chapter.id" class="block w-full border-b border-stone-100 px-4 py-3 text-left text-sm hover:bg-stone-50" :class="selectedId === chapter.id ? 'bg-teal-50 text-teal-900' : 'text-stone-700'" :style="{ paddingLeft: `${16 + (chapter.level - 1) * 12}px` }" @click="choose(chapter.id)">{{ chapter.title }}</button></aside>
-      <div class="min-w-0"><div class="panel"><div class="flex items-center justify-between border-b border-stone-200 px-5 py-4"><div><h3 class="text-sm font-semibold">{{ selected?.title || '选择章节' }}</h3><p class="mt-1 text-xs text-stone-500">{{ selected?.purpose || '暂无章节目的' }}</p></div><div class="flex items-center gap-3"><span class="text-xs" :class="isDirty ? 'text-amber-700' : 'text-stone-500'">{{ isDirty ? '未保存' : '已保存' }}</span><span class="text-xs text-stone-500">{{ content.length }} 字符</span><AppButton variant="secondary" :loading="busy" :disabled="!selectedDraftId || !isDirty" @click="saveDraft">保存</AppButton></div></div><p v-if="!selectedDraftId" class="border-b border-amber-200 bg-amber-50 px-5 py-3 text-sm text-amber-800">请先生成草稿，再开始编辑。这样每次编辑都可以保存到草稿版本。</p><textarea v-model="content" :disabled="!selectedDraftId" class="block min-h-[580px] w-full border-0 bg-white p-5 font-mono text-sm leading-7 outline-none focus:ring-1 focus:ring-inset focus:ring-teal-700 disabled:cursor-not-allowed disabled:bg-stone-100 disabled:text-stone-400" placeholder="请先生成草稿。" /></div></div>
-      <aside class="grid content-start gap-4"><div class="panel"><div class="panel-heading">生成控制</div><div class="panel-body grid gap-3"><label><span class="field-label">模式</span><select v-model="mode" class="field-control h-9"><option value="generate">生成</option><option value="rewrite">改写</option><option value="continue">续写</option><option value="expand">扩写</option><option value="compress">压缩</option><option value="polish">润色</option></select></label><label><span class="field-label">补充指令</span><textarea v-model="instruction" class="field-control" rows="4" placeholder="例如：更强调方法比较。" /></label><AppButton :loading="busy" @click="generate">生成草稿</AppButton></div></div><div class="panel"><div class="panel-heading">草稿版本</div><button v-for="draft in drafts" :key="draft.id" class="block w-full border-b border-stone-100 px-4 py-3 text-left text-sm hover:bg-stone-50" :class="selectedDraftId === draft.id ? 'bg-teal-50 text-teal-900' : ''" @click="chooseDraft(draft.id)"><span class="font-medium">版本 {{ draft.version }}</span><span class="ml-2 text-xs text-stone-500">{{ draft.generation_mode }}</span></button><p v-if="!drafts.length" class="p-4 text-xs text-stone-500">尚无草稿版本。</p></div></aside>
+      <aside class="panel">
+        <p class="panel-heading">大纲</p>
+        <button
+          v-for="chapter in store.chapters"
+          :key="chapter.id"
+          class="block w-full border-b border-stone-100 px-4 py-3 text-left text-sm hover:bg-stone-50"
+          :class="selectedId === chapter.id ? 'bg-teal-50 text-teal-900' : 'text-stone-700'"
+          :style="{ paddingLeft: `${16 + (chapter.level - 1) * 12}px` }"
+          @click="choose(chapter.id)"
+        >
+          {{ chapter.title }}
+        </button>
+      </aside>
+      <div class="min-w-0">
+        <div class="panel">
+          <div class="flex items-center justify-between border-b border-stone-200 px-5 py-4">
+            <div>
+              <h3 class="text-sm font-semibold">{{ selected?.title || '选择章节' }}</h3>
+              <p class="mt-1 text-xs text-stone-500">{{ selected?.purpose || '暂无章节目的' }}</p>
+            </div>
+            <div class="flex items-center gap-3">
+              <span class="text-xs" :class="isDirty ? 'text-amber-700' : 'text-stone-500'">
+                {{ isDirty ? '未保存' : '已保存' }}
+              </span>
+              <span class="text-xs text-stone-500">{{ content.length }} 字符</span>
+              <AppButton
+                variant="secondary"
+                :loading="busy"
+                :disabled="!selectedDraftId || !isDirty"
+                @click="saveDraft"
+              >
+                保存
+              </AppButton>
+            </div>
+          </div>
+          <p
+            v-if="!selectedDraftId"
+            class="border-b border-amber-200 bg-amber-50 px-5 py-3 text-sm text-amber-800"
+          >
+            请先生成草稿，再开始编辑。这样每次编辑都可以保存到草稿版本。
+          </p>
+          <textarea
+            v-model="content"
+            :disabled="!selectedDraftId"
+            class="block min-h-[580px] w-full border-0 bg-white p-5 font-mono text-sm leading-7 outline-none focus:ring-1 focus:ring-inset focus:ring-teal-700 disabled:cursor-not-allowed disabled:bg-stone-100 disabled:text-stone-400"
+            placeholder="请先生成草稿。"
+          />
+        </div>
+      </div>
+      <aside class="grid content-start gap-4">
+        <div class="panel">
+          <div class="panel-heading">生成控制</div>
+          <div class="panel-body grid gap-3">
+            <label>
+              <span class="field-label">模式</span>
+              <select v-model="mode" class="field-control h-9">
+                <option value="generate">生成</option>
+                <option value="rewrite">改写</option>
+                <option value="continue">续写</option>
+                <option value="expand">扩写</option>
+                <option value="compress">压缩</option>
+                <option value="polish">润色</option>
+              </select>
+            </label>
+            <label>
+              <span class="field-label">补充指令</span>
+              <textarea
+                v-model="instruction"
+                class="field-control"
+                rows="4"
+                placeholder="例如：更强调方法比较。"
+              />
+            </label>
+            <AppButton :loading="busy" @click="generate">生成草稿</AppButton>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-heading">草稿版本</div>
+          <button
+            v-for="draft in drafts"
+            :key="draft.id"
+            class="block w-full border-b border-stone-100 px-4 py-3 text-left text-sm hover:bg-stone-50"
+            :class="selectedDraftId === draft.id ? 'bg-teal-50 text-teal-900' : ''"
+            @click="chooseDraft(draft.id)"
+          >
+            <span class="font-medium">版本 {{ draft.version }}</span>
+            <span class="ml-2 text-xs text-stone-500">{{ draft.generation_mode }}</span>
+          </button>
+          <p v-if="!drafts.length" class="p-4 text-xs text-stone-500">尚无草稿版本。</p>
+        </div>
+      </aside>
     </div>
   </section>
 </template>

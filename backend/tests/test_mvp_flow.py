@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+from sqlalchemy import func, select
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
@@ -8,7 +9,7 @@ from sqlalchemy.pool import StaticPool
 from app.core.config import get_settings
 from app.ai.llm import LlmClient, MockLlmClient
 from app.db.base import Base
-from app.db.models import ExportRecord
+from app.db.models import Chapter, ChapterDraft, ExportRecord
 from app.db.session import get_db
 from app.main import create_app
 from app.services import generation
@@ -141,3 +142,50 @@ def test_full_mvp_api_flow(tmp_path, monkeypatch):
     assert client.get(f"/api/exports/{outside_export_id}/download").status_code == 404
 
     get_settings.cache_clear()
+
+
+def test_outline_regeneration_conflict_preserves_existing_work(monkeypatch):
+    monkeypatch.setattr(generation, "get_llm_client", MockLlmClient)
+    client, engine = create_client()
+    project_id = client.post(
+        "/api/projects",
+        json={"type": "thesis", "title": "Protected outline", "language": "zh"},
+    ).json()["id"]
+    chapters = client.post(
+        f"/api/projects/{project_id}/outline/generate", json={}
+    ).json()
+    chapter_id = chapters[0]["id"]
+    client.post(
+        f"/api/chapters/{chapter_id}/drafts/generate", json={"mode": "generate"}
+    )
+
+    response = client.post(f"/api/projects/{project_id}/outline/generate", json={})
+
+    assert response.status_code == 409
+    assert "force" in response.json()["detail"].lower()
+    with Session(engine) as session:
+        assert session.get(Chapter, chapter_id) is not None
+        assert session.scalar(
+            select(func.count()).select_from(ChapterDraft).where(
+                ChapterDraft.chapter_id == chapter_id
+            )
+        ) == 1
+
+
+def test_summary_generation_without_draft_returns_actionable_409(monkeypatch):
+    monkeypatch.setattr(generation, "get_llm_client", MockLlmClient)
+    client, _ = create_client()
+    project_id = client.post(
+        "/api/projects",
+        json={"type": "thesis", "title": "No draft", "language": "zh"},
+    ).json()["id"]
+    chapter_id = client.post(
+        f"/api/projects/{project_id}/outline/generate", json={}
+    ).json()[0]["id"]
+
+    response = client.post(f"/api/chapters/{chapter_id}/summary/generate")
+
+    assert response.status_code == 409
+    assert response.json() == {
+        "detail": "Generate a chapter draft before generating its summary."
+    }

@@ -1,12 +1,12 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.models import Chapter, ChapterRelation
 from app.db.session import get_db
 from app.schemas.workflow import ChapterRelationRead, ChapterRelationUpdate
+from app.services.chapters import list_chapters_in_hierarchy_order
 from app.services.generation import GenerationService
 from app.services.projects import ProjectService
 
@@ -22,11 +22,11 @@ def generate_relations(project_id: str, db: DbSession):
 @router.get("", response_model=list[ChapterRelationRead])
 def list_relations(project_id: str, db: DbSession):
     ProjectService.get_project_or_404(db, project_id)
-    return list(
-        db.scalars(
-            select(ChapterRelation).join(Chapter).where(Chapter.project_id == project_id).order_by(Chapter.order)
-        )
-    )
+    return [
+        chapter.relation
+        for chapter in list_chapters_in_hierarchy_order(db, project_id)
+        if chapter.relation is not None
+    ]
 
 
 @router.patch("/{relation_id}", response_model=ChapterRelationRead)

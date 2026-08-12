@@ -7,6 +7,7 @@ from app.core.config import get_settings
 from app.db.models import Chapter, ChapterDraft, ExportRecord
 from app.export.docx import build_docx
 from app.export.markdown import build_markdown
+from app.services.chapters import list_chapters_in_hierarchy_order
 from app.services.projects import ProjectService
 
 
@@ -19,7 +20,7 @@ class ExportService:
 
     @staticmethod
     def _chapters_and_drafts(db: Session, project_id: str):
-        chapters = list(db.scalars(select(Chapter).where(Chapter.project_id == project_id).order_by(Chapter.order)))
+        chapters = list_chapters_in_hierarchy_order(db, project_id)
         drafts: dict[str, ChapterDraft] = {}
         for draft in db.scalars(
             select(ChapterDraft).join(Chapter).where(Chapter.project_id == project_id).order_by(ChapterDraft.version.desc())

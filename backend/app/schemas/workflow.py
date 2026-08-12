@@ -65,6 +65,7 @@ class ProjectBriefUpdate(BaseModel):
 
 class OutlineGenerateRequest(BaseModel):
     outline_preference: str | None = None
+    force: bool = False
 
 
 class ChapterRead(BaseModel):

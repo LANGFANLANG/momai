@@ -1,6 +1,8 @@
+import pytest
 from sqlalchemy import func, select
 
 from app.db.models import (
+    Chapter,
     ChapterDraft,
     ChapterRelation,
     ChapterSummary,
@@ -10,7 +12,7 @@ from app.db.models import (
     ProjectContext,
 )
 from app.ai.llm import LlmClient, MockLlmClient
-from app.services.generation import GenerationService
+from app.services.generation import GenerationService, OutlineRegenerationConflict
 
 
 class ScriptedLlmClient(LlmClient):
@@ -23,6 +25,18 @@ class ScriptedLlmClient(LlmClient):
 
     def complete_markdown(self, prompt: str) -> str:
         return self.markdown_response
+
+
+class ReviewPromptClient(LlmClient):
+    def __init__(self):
+        self.prompt = ""
+
+    def complete_json(self, prompt: str) -> dict:
+        self.prompt = prompt
+        return {"issues": []}
+
+    def complete_markdown(self, prompt: str) -> str:
+        raise AssertionError("Review should not request Markdown")
 
 
 def test_mock_generation_flow_persists_each_stage(db_session):
@@ -147,11 +161,91 @@ def test_structured_llm_output_is_persisted(db_session):
     issues = GenerationService.review_consistency(db_session, project.id, client)
 
     assert brief.background == "LLM background"
-    assert chapters[0].title == "LLM Chapter"
-    child = db_session.scalar(select(type(chapters[0])).where(type(chapters[0]).title == "LLM Section"))
-    assert child is not None
+    assert [chapter.title for chapter in chapters] == ["LLM Chapter", "LLM Section"]
+    child = chapters[1]
     assert child.parent_id == chapters[0].id
     assert relations[0].next_bridge == "LLM next"
     assert draft.content == "# LLM Chapter\n\nLLM draft"
     assert summary.summary == "LLM summary"
     assert issues[0].type == "LLM issue"
+
+
+@pytest.mark.parametrize("downstream", ["relation", "draft", "summary"])
+def test_outline_regeneration_rejects_when_downstream_work_exists(db_session, downstream):
+    project = Project(type="thesis", title="Protected work", language="zh")
+    chapter = Chapter(project=project, title="Existing chapter", level=1, order=1)
+    db_session.add(project)
+    db_session.flush()
+    if downstream == "relation":
+        db_session.add(ChapterRelation(chapter=chapter, key_points=["keep relation"]))
+    elif downstream == "draft":
+        db_session.add(
+            ChapterDraft(
+                chapter=chapter,
+                version=1,
+                content="keep draft",
+                generation_mode="generate",
+            )
+        )
+    else:
+        db_session.add(ChapterSummary(chapter=chapter, summary="keep summary"))
+    db_session.commit()
+
+    with pytest.raises(OutlineRegenerationConflict):
+        GenerationService.generate_outline(db_session, project.id, client=MockLlmClient())
+
+    assert db_session.get(Chapter, chapter.id) is not None
+    assert db_session.scalar(select(func.count()).select_from(Chapter)) == 1
+
+
+def test_outline_regeneration_force_replaces_downstream_work(db_session):
+    project = Project(type="thesis", title="Replace work", language="zh")
+    chapter = Chapter(project=project, title="Existing chapter", level=1, order=1)
+    db_session.add_all(
+        [
+            project,
+            ChapterDraft(
+                chapter=chapter,
+                version=1,
+                content="replace me",
+                generation_mode="generate",
+            ),
+        ]
+    )
+    db_session.commit()
+
+    chapters = GenerationService.generate_outline(
+        db_session, project.id, force=True, client=MockLlmClient()
+    )
+
+    assert chapters[0].title == "绪论"
+    assert db_session.get(Chapter, chapter.id) is None
+
+
+def test_consistency_review_uses_only_latest_draft_per_chapter(db_session):
+    project = Project(type="thesis", title="Latest review", language="zh")
+    chapter = Chapter(project=project, title="Chapter", level=1, order=1)
+    db_session.add_all(
+        [
+            project,
+            ChapterDraft(
+                chapter=chapter,
+                version=1,
+                content="STALE_DRAFT_CONTENT",
+                generation_mode="generate",
+            ),
+            ChapterDraft(
+                chapter=chapter,
+                version=2,
+                content="LATEST_DRAFT_CONTENT",
+                generation_mode="rewrite",
+            ),
+        ]
+    )
+    db_session.commit()
+    client = ReviewPromptClient()
+
+    GenerationService.review_consistency(db_session, project.id, client)
+
+    assert "LATEST_DRAFT_CONTENT" in client.prompt
+    assert "STALE_DRAFT_CONTENT" not in client.prompt

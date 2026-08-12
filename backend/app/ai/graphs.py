@@ -5,13 +5,19 @@ from typing import Any
 GenerationNode = Callable[[dict[str, Any]], dict[str, Any]]
 
 
-def _workflow(*nodes: GenerationNode) -> Callable[[dict[str, Any]], dict[str, Any]]:
-    def invoke(state: dict[str, Any]) -> dict[str, Any]:
-        for node in nodes:
+class SequentialWorkflow:
+    def __init__(self, nodes: tuple[GenerationNode, ...]):
+        self.nodes = nodes
+
+    def invoke(self, state: dict[str, Any]) -> dict[str, Any]:
+        state = dict(state)
+        for node in self.nodes:
             state = node(state)
         return state
 
-    return invoke
+
+def _workflow(*nodes: GenerationNode) -> SequentialWorkflow:
+    return SequentialWorkflow(nodes)
 
 
 def build_brief_workflow(*nodes: GenerationNode):

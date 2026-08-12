@@ -1,7 +1,15 @@
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
 from app.ai.llm import LlmClient, MockLlmClient, get_llm_client
+from app.ai.graphs import (
+    build_brief_workflow,
+    build_chapter_draft_workflow,
+    build_chapter_summary_workflow,
+    build_consistency_review_workflow,
+    build_outline_workflow,
+    build_relations_workflow,
+)
 from app.ai.prompts import (
     BRIEF_PROMPT,
     CHAPTER_DRAFT_PROMPT,
@@ -26,7 +34,16 @@ from app.schemas.chapter import (
     ChapterSummaryGeneration,
 )
 from app.schemas.review import ConsistencyReviewGeneration
+from app.services.chapters import list_chapters_in_hierarchy_order
 from app.services.projects import ProjectService
+
+
+class OutlineRegenerationConflict(Exception):
+    pass
+
+
+class ChapterDraftRequired(Exception):
+    pass
 
 
 class GenerationService:
@@ -93,8 +110,17 @@ class GenerationService:
             project_type=project.type, project_title=project.title, project_context=context
         )
         llm = cls._client(client)
-        if isinstance(llm, MockLlmClient):
-            data = ProjectBriefGeneration(
+        def generate(state):
+            if not isinstance(llm, MockLlmClient):
+                return {
+                    **state,
+                    "result": ProjectBriefGeneration.model_validate(
+                        llm.complete_json(state["prompt"])
+                    ),
+                }
+            return {
+                **state,
+                "result": ProjectBriefGeneration(
                 title_explanation=project.title,
                 background=(context.background if context else None) or "围绕项目主题整理研究背景。",
                 core_problem=(context.problem if context else None) or "明确项目需要解决的核心问题。",
@@ -105,9 +131,10 @@ class GenerationService:
                 expected_result="形成结构完整的项目报告初稿。",
                 writing_boundary="仅基于用户提供的项目事实写作。",
                 locked_facts=[project.title, *((context.modules if context else None) or [])],
-            )
-        else:
-            data = ProjectBriefGeneration.model_validate(llm.complete_json(prompt))
+                ),
+            }
+
+        data = build_brief_workflow(generate).invoke({"prompt": prompt})["result"]
         brief = project.brief or ProjectBrief(project_id=project.id)
         for field, value in data.model_dump().items():
             setattr(brief, field, value)
@@ -117,9 +144,14 @@ class GenerationService:
     @classmethod
     def generate_outline(
         cls, db: Session, project_id: str, outline_preference: str | None = None,
-        client: LlmClient | None = None,
+        client: LlmClient | None = None, force: bool = False,
     ) -> list[Chapter]:
         project = ProjectService.get_project_or_404(db, project_id)
+        if not force and cls._outline_has_downstream_work(db, project.id):
+            raise OutlineRegenerationConflict(
+                "Outline regeneration would delete chapter relations, drafts, or summaries. "
+                "Retry with force=true only after confirming that this work may be deleted."
+            )
         prompt = OUTLINE_PROMPT.format(
             project_type=project.type,
             target_word_count=project.target_word_count,
@@ -128,34 +160,53 @@ class GenerationService:
             outline_preference=outline_preference or "默认结构",
         )
         llm = cls._client(client)
-        if isinstance(llm, MockLlmClient):
-            chapters = cls._mock_outline(project.id, project.target_word_count)
-        else:
-            output = OutlineGeneration.model_validate(llm.complete_json(prompt))
-            chapters = []
-        for chapter in list(project.chapters):
+        def generate(state):
+            result = (
+                cls._mock_outline(project.id, project.target_word_count)
+                if isinstance(llm, MockLlmClient)
+                else OutlineGeneration.model_validate(llm.complete_json(state["prompt"]))
+            )
+            return {**state, "result": result}
+
+        output = build_outline_workflow(generate).invoke({"prompt": prompt})["result"]
+        for chapter in [item for item in list(project.chapters) if item.parent_id is None]:
             db.delete(chapter)
         db.flush()
         if isinstance(llm, MockLlmClient):
-            db.add_all(chapters)
+            db.add_all(output)
         else:
-            chapters = [
+            for item in output.chapters:
                 cls._persist_outline_chapter(db, project.id, item)
-                for item in output.chapters
-            ]
         project.status = "outline_ready"
         db.commit()
-        for chapter in chapters:
-            db.refresh(chapter)
-        return chapters
+        return list_chapters_in_hierarchy_order(db, project.id)
+
+    @staticmethod
+    def _outline_has_downstream_work(db: Session, project_id: str) -> bool:
+        downstream_models = (ChapterRelation, ChapterDraft, ChapterSummary)
+        return any(
+            db.scalar(
+                select(model.id)
+                .join(Chapter)
+                .where(Chapter.project_id == project_id)
+                .limit(1)
+            )
+            is not None
+            for model in downstream_models
+        )
 
     @classmethod
     def generate_relations(cls, db: Session, project_id: str, client: LlmClient | None = None) -> list[ChapterRelation]:
         project = ProjectService.get_project_or_404(db, project_id)
-        chapters = list(db.scalars(select(Chapter).where(Chapter.project_id == project.id).order_by(Chapter.order)))
+        chapters = list_chapters_in_hierarchy_order(db, project.id)
         llm = cls._client(client)
         prompt = RELATION_PROMPT.format(project_brief=project.brief, outline=chapters)
-        if isinstance(llm, MockLlmClient):
+        def generate(state):
+            if not isinstance(llm, MockLlmClient):
+                result = RelationsGeneration.model_validate(
+                    llm.complete_json(state["prompt"])
+                ).relations
+                return {**state, "result": [item.model_dump() for item in result]}
             items = []
             for index, chapter in enumerate(chapters):
                 previous = chapters[index - 1].title if index else "研究背景"
@@ -170,8 +221,9 @@ class GenerationService:
                     "output_conclusions": [f"完成{chapter.title}的阶段性结论。"],
                     "avoid_repeating": ["避免重复前文内容。"],
                 })
-        else:
-            items = [item.model_dump() for item in RelationsGeneration.model_validate(llm.complete_json(prompt)).relations]
+            return {**state, "result": items}
+
+        items = build_relations_workflow(generate).invoke({"prompt": prompt})["result"]
         chapters_by_title = {chapter.title: chapter for chapter in chapters}
         relations = []
         for item in items:
@@ -205,10 +257,15 @@ class GenerationService:
             user_instruction=user_instruction or "",
         )
         llm = cls._client(client)
-        content = (
-            f"# {chapter.title}\n\n{chapter.purpose or '本章围绕项目主题展开论述。'}"
-            if isinstance(llm, MockLlmClient) else llm.complete_markdown(prompt)
-        )
+        def generate(state):
+            content = (
+                f"# {chapter.title}\n\n{chapter.purpose or '本章围绕项目主题展开论述。'}"
+                if isinstance(llm, MockLlmClient)
+                else llm.complete_markdown(state["prompt"])
+            )
+            return {**state, "result": content}
+
+        content = build_chapter_draft_workflow(generate).invoke({"prompt": prompt})["result"]
         version = db.scalar(select(func.coalesce(func.max(ChapterDraft.version), 0)).where(ChapterDraft.chapter_id == chapter.id)) + 1
         draft = ChapterDraft(chapter_id=chapter.id, version=version, content=content,
             prompt_snapshot={"prompt": prompt, "user_instruction": user_instruction}, generation_mode=mode)
@@ -223,26 +280,103 @@ class GenerationService:
             raise ValueError("Chapter not found")
         draft = db.scalar(select(ChapterDraft).where(ChapterDraft.chapter_id == chapter.id).order_by(ChapterDraft.version.desc()))
         if draft is None:
-            raise ValueError("Chapter draft not found")
+            raise ChapterDraftRequired(
+                "Generate a chapter draft before generating its summary."
+            )
         prompt = CHAPTER_SUMMARY_PROMPT.format(chapter_title=chapter.title, chapter_content=draft.content)
         llm = cls._client(client)
-        if isinstance(llm, MockLlmClient):
-            data = ChapterSummaryGeneration(summary=f"{chapter.title}概述了本章的核心内容。", key_conclusions=[chapter.purpose or chapter.title], used_facts=(chapter.project.brief.locked_facts if chapter.project.brief else []) or [], forward_implications=[chapter.relation.next_bridge] if chapter.relation else [])
-        else:
-            data = ChapterSummaryGeneration.model_validate(llm.complete_json(prompt))
+        def generate(state):
+            data = (
+                ChapterSummaryGeneration(
+                    summary=f"{chapter.title}概述了本章的核心内容。",
+                    key_conclusions=[chapter.purpose or chapter.title],
+                    used_facts=(
+                        chapter.project.brief.locked_facts
+                        if chapter.project.brief
+                        else []
+                    )
+                    or [],
+                    forward_implications=(
+                        [chapter.relation.next_bridge] if chapter.relation else []
+                    ),
+                )
+                if isinstance(llm, MockLlmClient)
+                else ChapterSummaryGeneration.model_validate(
+                    llm.complete_json(state["prompt"])
+                )
+            )
+            return {**state, "result": data}
+
+        data = build_chapter_summary_workflow(generate).invoke({"prompt": prompt})[
+            "result"
+        ]
         return cls._commit_and_refresh(db, ChapterSummary(chapter_id=chapter.id, **data.model_dump()))
 
     @classmethod
     def review_consistency(cls, db: Session, project_id: str, client: LlmClient | None = None) -> list[ConsistencyIssue]:
         project = ProjectService.get_project_or_404(db, project_id)
-        chapters = list(db.scalars(select(Chapter).where(Chapter.project_id == project.id).order_by(Chapter.order)))
-        drafts = list(db.scalars(select(ChapterDraft).join(Chapter).where(Chapter.project_id == project.id)))
-        prompt = CONSISTENCY_REVIEW_PROMPT.format(project_brief=project.brief, outline=chapters, relations=[chapter.relation for chapter in chapters], chapter_drafts=drafts)
+        chapters = list_chapters_in_hierarchy_order(db, project.id)
+        latest_versions = (
+            select(
+                ChapterDraft.chapter_id,
+                func.max(ChapterDraft.version).label("version"),
+            )
+            .join(Chapter)
+            .where(Chapter.project_id == project.id)
+            .group_by(ChapterDraft.chapter_id)
+            .subquery()
+        )
+        drafts = list(
+            db.scalars(
+                select(ChapterDraft).join(
+                    latest_versions,
+                    and_(
+                        ChapterDraft.chapter_id == latest_versions.c.chapter_id,
+                        ChapterDraft.version == latest_versions.c.version,
+                    ),
+                )
+            )
+        )
+        draft_by_chapter = {draft.chapter_id: draft for draft in drafts}
+        draft_context = [
+            {
+                "chapter_id": chapter.id,
+                "chapter_title": chapter.title,
+                "version": draft_by_chapter[chapter.id].version,
+                "content": draft_by_chapter[chapter.id].content,
+            }
+            for chapter in chapters
+            if chapter.id in draft_by_chapter
+        ]
+        prompt = CONSISTENCY_REVIEW_PROMPT.format(
+            project_brief=project.brief,
+            outline=chapters,
+            relations=[chapter.relation for chapter in chapters],
+            chapter_drafts=draft_context,
+        )
         llm = cls._client(client)
-        if isinstance(llm, MockLlmClient):
-            data = ConsistencyReviewGeneration(issues=[{"severity": "low", "type": "structure_review", "description": "请确认各章节内容与大纲保持一致。", "suggestion": "根据章节关系补充必要的过渡说明。"}])
-        else:
-            data = ConsistencyReviewGeneration.model_validate(llm.complete_json(prompt))
+        def generate(state):
+            data = (
+                ConsistencyReviewGeneration(
+                    issues=[
+                        {
+                            "severity": "low",
+                            "type": "structure_review",
+                            "description": "请确认各章节内容与大纲保持一致。",
+                            "suggestion": "根据章节关系补充必要的过渡说明。",
+                        }
+                    ]
+                )
+                if isinstance(llm, MockLlmClient)
+                else ConsistencyReviewGeneration.model_validate(
+                    llm.complete_json(state["prompt"])
+                )
+            )
+            return {**state, "result": data}
+
+        data = build_consistency_review_workflow(generate).invoke({"prompt": prompt})[
+            "result"
+        ]
         chapters_by_title = {chapter.title: chapter for chapter in chapters}
         issues = []
         for item in data.issues:

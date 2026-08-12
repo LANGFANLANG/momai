@@ -1,5 +1,15 @@
 export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
 
+export class HttpError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+  ) {
+    super(message)
+    this.name = 'HttpError'
+  }
+}
+
 export async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
@@ -10,7 +20,15 @@ export async function request<T>(path: string, init: RequestInit = {}): Promise<
   })
 
   if (!response.ok) {
-    throw new Error(await response.text())
+    const body = await response.text()
+    let message = body || `Request failed (${response.status})`
+    try {
+      const parsed = JSON.parse(body) as { detail?: string }
+      message = parsed.detail || message
+    } catch {
+      // Keep the response body when the server did not return JSON.
+    }
+    throw new HttpError(message, response.status)
   }
 
   if (response.status === 204) {
