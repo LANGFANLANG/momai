@@ -6,6 +6,24 @@
   body {
     margin: 0;
     min-width: 320px;
-    font-family: Inter, "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: #f6f5f1;
+    font-family: "Noto Serif SC", "Songti SC", "Microsoft YaHei", serif;
   }
+
+  button, input, select, textarea { font: inherit; }
+  textarea { resize: vertical; }
+}
+
+@layer components {
+  .page-heading { @apply text-2xl font-semibold tracking-normal text-stone-900; }
+  .page-kicker { @apply mb-1 text-xs font-medium tracking-normal text-stone-500; }
+  .page-copy { @apply text-sm leading-6 text-stone-600; }
+  .panel { @apply border border-stone-200 bg-white; }
+  .panel-heading { @apply border-b border-stone-200 px-5 py-4 text-sm font-semibold text-stone-800; }
+  .panel-body { @apply p-5; }
+  .field-label { @apply mb-1.5 block text-xs font-medium text-stone-700; }
+  .field-control { @apply block w-full border border-stone-300 bg-white px-3 py-2 text-sm text-stone-900 outline-none transition placeholder:text-stone-400 focus:border-teal-700 focus:ring-1 focus:ring-teal-700; }
+  .table-head { @apply border-b border-stone-200 text-left text-xs font-medium text-stone-500; }
+  .table-cell { @apply border-b border-stone-100 px-3 py-3 align-top text-sm text-stone-700; }
+  .status-note { @apply text-xs text-stone-500; }
 }

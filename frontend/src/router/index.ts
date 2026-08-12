@@ -1,22 +1,27 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
-
-const WorkflowPlaceholder = {
-  template: '<section><h1 class="text-2xl font-semibold">{{ $route.meta.title }}</h1></section>',
-}
+import ProjectListPage from '@/pages/ProjectListPage.vue'
+import ProjectCreatePage from '@/pages/ProjectCreatePage.vue'
+import ProjectLayout from '@/pages/ProjectLayout.vue'
+import ProjectBriefPage from '@/pages/ProjectBriefPage.vue'
+import OutlinePage from '@/pages/OutlinePage.vue'
+import ChapterRelationsPage from '@/pages/ChapterRelationsPage.vue'
+import ChapterWritingPage from '@/pages/ChapterWritingPage.vue'
+import ConsistencyReviewPage from '@/pages/ConsistencyReviewPage.vue'
+import ExportPage from '@/pages/ExportPage.vue'
 
 const routes: RouteRecordRaw[] = [
   { path: '/', redirect: '/projects' },
-  { path: '/projects', component: WorkflowPlaceholder, meta: { title: '项目' } },
-  { path: '/projects/new', component: WorkflowPlaceholder, meta: { title: '新建项目' } },
-  { path: '/projects/:projectId/brief', component: WorkflowPlaceholder, meta: { title: '项目 Brief' } },
-  { path: '/projects/:projectId/outline', component: WorkflowPlaceholder, meta: { title: '大纲' } },
-  { path: '/projects/:projectId/relations', component: WorkflowPlaceholder, meta: { title: '章节关系' } },
-  { path: '/projects/:projectId/chapters/:chapterId', component: WorkflowPlaceholder, meta: { title: '章节写作' } },
-  { path: '/projects/:projectId/review', component: WorkflowPlaceholder, meta: { title: '一致性检查' } },
-  { path: '/projects/:projectId/export', component: WorkflowPlaceholder, meta: { title: '导出' } },
+  { path: '/projects', component: ProjectListPage },
+  { path: '/projects/new', component: ProjectCreatePage },
+  { path: '/projects/:projectId', component: ProjectLayout, children: [
+    { path: '', redirect: to => `/projects/${String(to.params.projectId)}/brief` },
+    { path: 'brief', component: ProjectBriefPage },
+    { path: 'outline', component: OutlinePage },
+    { path: 'relations', component: ChapterRelationsPage },
+    { path: 'chapters', component: ChapterWritingPage },
+    { path: 'chapters/:chapterId', component: ChapterWritingPage },
+    { path: 'review', component: ConsistencyReviewPage },
+    { path: 'export', component: ExportPage },
+  ] },
 ]
-
-export default createRouter({
-  history: createWebHistory(),
-  routes,
-})
+export default createRouter({ history: createWebHistory(), routes })

@@ -1,30 +1,15 @@
 <script setup lang="ts">
 import { RouterLink, RouterView } from 'vue-router'
-
-const navigation = [
-  { label: '项目', to: '/projects' },
-]
 </script>
 
 <template>
-  <div class="min-h-screen bg-slate-50 text-slate-900">
-    <header class="border-b border-slate-200 bg-white">
-      <div class="mx-auto flex h-14 max-w-7xl items-center gap-8 px-6">
-        <RouterLink class="text-lg font-semibold" to="/projects">墨脉</RouterLink>
-        <nav class="flex items-center gap-4 text-sm text-slate-600">
-          <RouterLink
-            v-for="item in navigation"
-            :key="item.to"
-            :to="item.to"
-            class="transition hover:text-slate-950"
-          >
-            {{ item.label }}
-          </RouterLink>
-        </nav>
+  <div class="min-h-screen bg-[#f6f5f1] text-stone-900">
+    <header class="border-b border-stone-200 bg-[#fbfaf7]">
+      <div class="mx-auto flex h-14 max-w-[1440px] items-center px-6">
+        <RouterLink class="text-lg font-semibold tracking-[0.12em] text-teal-800" to="/projects">墨脉</RouterLink>
+        <span class="ml-4 border-l border-stone-300 pl-4 text-xs tracking-wide text-stone-500">学术写作工作台</span>
       </div>
     </header>
-    <main class="mx-auto max-w-7xl px-6 py-8">
-      <RouterView />
-    </main>
+    <main class="mx-auto max-w-[1440px] px-6 py-7"><RouterView /></main>
   </div>
 </template>
