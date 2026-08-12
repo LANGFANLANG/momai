@@ -6,6 +6,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.db.models import ExportRecord
+from app.core.config import get_settings
 from app.db.session import get_db
 from app.schemas.workflow import ExportRecordRead
 from app.services.export import ExportService
@@ -29,7 +30,10 @@ def download_export(export_id: str, db: DbSession) -> FileResponse:
     record = db.get(ExportRecord, export_id)
     if record is None:
         raise HTTPException(status_code=404, detail="Export not found")
-    file_path = Path(record.file_url)
+    export_dir = Path(get_settings().export_dir).resolve()
+    file_path = Path(record.file_url).resolve()
+    if not file_path.is_relative_to(export_dir):
+        raise HTTPException(status_code=404, detail="Export file not found")
     if not file_path.is_file():
         raise HTTPException(status_code=404, detail="Export file not found")
     return FileResponse(file_path, filename=file_path.name)

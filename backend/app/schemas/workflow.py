@@ -3,7 +3,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.db.models import DRAFT_MODES, ISSUE_STATUSES
+from app.db.models import CHAPTER_STATUSES, DRAFT_MODES, ISSUE_STATUSES
 
 
 class ProjectContextPayload(BaseModel):
@@ -78,7 +78,7 @@ class ChapterRead(BaseModel):
     order: int
     purpose: str | None
     suggested_word_count: int | None
-    status: str
+    status: Literal[*CHAPTER_STATUSES]
 
 
 class ChapterUpdate(BaseModel):
@@ -87,7 +87,7 @@ class ChapterUpdate(BaseModel):
     order: int | None = None
     purpose: str | None = None
     suggested_word_count: int | None = None
-    status: str | None = None
+    status: Literal[*CHAPTER_STATUSES] | None = None
 
 
 class ChapterRelationRead(BaseModel):

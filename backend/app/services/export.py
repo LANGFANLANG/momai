@@ -15,7 +15,7 @@ class ExportService:
     def _export_dir() -> Path:
         directory = Path(get_settings().export_dir)
         directory.mkdir(parents=True, exist_ok=True)
-        return directory
+        return directory.resolve()
 
     @staticmethod
     def _chapters_and_drafts(db: Session, project_id: str):
@@ -31,11 +31,13 @@ class ExportService:
     def export_markdown(cls, db: Session, project_id: str) -> ExportRecord:
         project = ProjectService.get_project_or_404(db, project_id)
         chapters, drafts = cls._chapters_and_drafts(db, project.id)
-        output_path = cls._export_dir() / f"{project.id}.md"
-        output_path.write_text(build_markdown(project, chapters, drafts), encoding="utf-8")
-        record = ExportRecord(project_id=project.id, format="markdown", file_url=str(output_path.resolve()))
-        project.status = "export_ready"
+        record = ExportRecord(project_id=project.id, format="markdown", file_url="")
         db.add(record)
+        db.flush()
+        output_path = cls._export_dir() / f"{record.id}.md"
+        output_path.write_text(build_markdown(project, chapters, drafts), encoding="utf-8")
+        record.file_url = str(output_path)
+        project.status = "export_ready"
         db.commit()
         db.refresh(record)
         return record
@@ -44,11 +46,13 @@ class ExportService:
     def export_docx(cls, db: Session, project_id: str) -> ExportRecord:
         project = ProjectService.get_project_or_404(db, project_id)
         chapters, drafts = cls._chapters_and_drafts(db, project.id)
-        output_path = cls._export_dir() / f"{project.id}.docx"
-        build_docx(output_path, project, chapters, drafts)
-        record = ExportRecord(project_id=project.id, format="docx", file_url=str(output_path.resolve()))
-        project.status = "export_ready"
+        record = ExportRecord(project_id=project.id, format="docx", file_url="")
         db.add(record)
+        db.flush()
+        output_path = cls._export_dir() / f"{record.id}.docx"
+        build_docx(output_path, project, chapters, drafts)
+        record.file_url = str(output_path)
+        project.status = "export_ready"
         db.commit()
         db.refresh(record)
         return record
