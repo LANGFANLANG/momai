@@ -4,12 +4,7 @@ import { useRoute } from 'vue-router'
 import AppButton from '@/components/ui/AppButton.vue'
 import { useChapterStore } from '@/stores/chapter'
 import { workflowApi } from '@/api/workflow'
-
-const projectId = String(useRoute().params.projectId)
-const store = useChapterStore()
-const selectedChapterId = ref('')
-const busy = ref(false)
-const message = ref('')
+const projectId = String(useRoute().params.projectId); const store = useChapterStore(); const selectedChapterId = ref(''); const busy = ref(false); const message = ref('')
 const selected = computed(() => store.relations.find(item => item.chapter_id === selectedChapterId.value))
 function list(value: string[] | null) { return (value ?? []).join('\n') }
 function values(value: string) { return value.split('\n').map(item => item.trim()).filter(Boolean) }
@@ -18,7 +13,6 @@ async function generate() { busy.value = true; try { store.relations = await wor
 async function save() { if (!selected.value) return; busy.value = true; try { await workflowApi.updateRelation(projectId, selected.value.id, selected.value); message.value = '当前关系已保存' } catch (error) { message.value = error instanceof Error ? error.message : '保存失败' } finally { busy.value = false } }
 onMounted(load)
 </script>
-
 <template>
   <section><div class="mb-6 flex flex-wrap items-end justify-between gap-4"><div><p class="page-kicker">03 / RELATIONS</p><h2 class="page-heading">章节关系</h2><p class="page-copy mt-2">为每章保留承接、结论与避免重复的写作上下文。</p></div><div class="flex gap-2"><AppButton variant="secondary" :loading="busy" @click="save">保存当前关系</AppButton><AppButton :loading="busy" @click="generate">生成关系</AppButton></div></div><p v-if="message" class="mb-4 text-sm text-teal-800">{{ message }}</p><div class="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)]"><aside class="panel"><p class="panel-heading">章节</p><button v-for="chapter in store.chapters" :key="chapter.id" class="block w-full border-b border-stone-100 px-4 py-3 text-left text-sm hover:bg-stone-50" :class="selectedChapterId === chapter.id ? 'bg-teal-50 text-teal-900' : 'text-stone-700'" @click="selectedChapterId = chapter.id">{{ chapter.title }}</button></aside><div v-if="selected" class="panel"><div class="panel-heading">关系编辑 <span class="ml-2 font-normal text-stone-500">{{ store.chapters.find(c => c.id === selectedChapterId)?.title }}</span></div><div class="panel-body grid gap-4 md:grid-cols-2"><label><span class="field-label">前文承接</span><textarea v-model="selected.previous_bridge" class="field-control" rows="4" /></label><label><span class="field-label">后文引出</span><textarea v-model="selected.next_bridge" class="field-control" rows="4" /></label><label><span class="field-label">必须回答的问题</span><textarea :value="list(selected.required_questions)" class="field-control" rows="5" @input="selected.required_questions = values(($event.target as HTMLTextAreaElement).value)" /></label><label><span class="field-label">关键论点</span><textarea :value="list(selected.key_points)" class="field-control" rows="5" @input="selected.key_points = values(($event.target as HTMLTextAreaElement).value)" /></label><label><span class="field-label">输出结论</span><textarea :value="list(selected.output_conclusions)" class="field-control" rows="4" @input="selected.output_conclusions = values(($event.target as HTMLTextAreaElement).value)" /></label><label><span class="field-label">避免重复</span><textarea :value="list(selected.avoid_repeating)" class="field-control" rows="4" @input="selected.avoid_repeating = values(($event.target as HTMLTextAreaElement).value)" /></label></div></div><div v-else class="panel p-8 text-sm text-stone-500">{{ selectedChapterId ? '当前章节尚未生成关系。' : '选择章节查看关系上下文。' }}</div></div></section>
 </template>
