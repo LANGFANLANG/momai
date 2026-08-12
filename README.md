@@ -9,7 +9,7 @@ Paper Agent is a local Vue and FastAPI application for drafting papers and repor
 - PostgreSQL running at `localhost:15432` with:
   - database: `lifepilot`
   - user: `lifepilot`
-  - password: `lifepilot`
+  - password: your own local password
 
 ## Backend Setup
 
@@ -27,7 +27,9 @@ uvicorn app.main:app --reload
 
 `backend/.env` is local-only and must not be committed. The example file contains no secret. The default settings use the user-managed PostgreSQL instance above and the `deepseek-flash` model. To enable real DeepSeek generation, set the `DEEPSEEK_V4` value in `backend/.env`; when it is empty, the app uses deterministic mock generation.
 
-The backend API runs at <http://localhost:8000>. Its health endpoint is <http://localhost:8000/api/health>.
+Put the real PostgreSQL password only in the untracked `backend/.env`; replace `YOUR_PASSWORD` in the copied `DATABASE_URL` there with that local value.
+
+The backend API runs at <http://localhost:8000>. Its health endpoint is <http://localhost:8000/api/health> and returns `{ "status": "ok" }`.
 
 ## Frontend Setup
 
@@ -58,3 +60,5 @@ npm run build
 ```
 
 For a full local run, start PostgreSQL first, apply migrations with `alembic upgrade head`, then run the backend and frontend servers as described above.
+
+Live runtime checks for the backend health endpoint and frontend project-list page were not run for this verification because the local `backend/.env` was unavailable. The backend health route is covered by the automated test suite.
