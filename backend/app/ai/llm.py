@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+import json
 
 import httpx
 
@@ -7,17 +8,23 @@ from app.core.config import get_settings
 
 class LlmClient(ABC):
     @abstractmethod
-    def complete(self, prompt: str) -> str:
-        """Return a completion for a fully rendered prompt."""
+    def complete_json(self, prompt: str) -> dict:
+        """Return a JSON object for a fully rendered prompt."""
+
+    @abstractmethod
+    def complete_markdown(self, prompt: str) -> str:
+        """Return Markdown for a fully rendered prompt."""
 
 
 class DeepSeekClient(LlmClient):
     def __init__(self, api_key: str, base_url: str, model: str = "deepseek-flash"):
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
-        self.model = model
+        if model != "deepseek-flash":
+            raise ValueError("Only the deepseek-flash model is supported")
+        self.model = "deepseek-flash"
 
-    def complete(self, prompt: str) -> str:
+    def _complete(self, prompt: str) -> str:
         response = httpx.post(
             f"{self.base_url}/chat/completions",
             headers={"Authorization": f"Bearer {self.api_key}"},
@@ -27,9 +34,24 @@ class DeepSeekClient(LlmClient):
         response.raise_for_status()
         return response.json()["choices"][0]["message"]["content"]
 
+    def complete_json(self, prompt: str) -> dict:
+        content = self._complete(prompt).strip()
+        if content.startswith("```"):
+            content = content.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+        parsed = json.loads(content)
+        if not isinstance(parsed, dict):
+            raise ValueError("DeepSeek JSON completion must be an object")
+        return parsed
+
+    def complete_markdown(self, prompt: str) -> str:
+        return self._complete(prompt)
+
 
 class MockLlmClient(LlmClient):
-    def complete(self, prompt: str) -> str:
+    def complete_json(self, prompt: str) -> dict:
+        return {}
+
+    def complete_markdown(self, prompt: str) -> str:
         return prompt
 
 

@@ -17,6 +17,7 @@ OUTLINE_PROMPT = """你是一个本科论文和课程设计报告大纲设计助
 目标字数：{target_word_count}
 学校或教师要求：{requirements}
 Project Brief：{project_brief}
+大纲偏好：{outline_preference}
 
 要求：为每个章节给出 purpose 和 suggested_word_count；输出 JSON，不要输出 Markdown。
 """
