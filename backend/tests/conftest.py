@@ -1,8 +1,13 @@
+import os
+
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from app.db.base import Base
+
+
+os.environ.setdefault("DATABASE_URL", "sqlite://")
 
 
 @pytest.fixture

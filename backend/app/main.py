@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api.routers import health, projects
+from app.api.routers import brief, chapters, export, health, outline, projects, relations, review
 
 
 def create_app() -> FastAPI:
@@ -14,6 +14,12 @@ def create_app() -> FastAPI:
     )
     app.include_router(health.router)
     app.include_router(projects.router)
+    app.include_router(brief.router)
+    app.include_router(outline.router)
+    app.include_router(relations.router)
+    app.include_router(chapters.router)
+    app.include_router(review.router)
+    app.include_router(export.router)
     return app
 
 
