@@ -90,7 +90,11 @@ def test_full_mvp_api_flow(tmp_path, monkeypatch):
     assert second_draft_response.status_code == 200
     monkeypatch.setattr(generation, "get_llm_client", MockLlmClient)
     assert client.get(f"/api/chapters/{chapter_id}/drafts").status_code == 200
-    assert client.post(f"/api/chapters/{chapter_id}/summary/generate").status_code == 200
+    summary_response = client.post(f"/api/chapters/{chapter_id}/summary/generate")
+    assert summary_response.status_code == 200
+    latest_summary_response = client.get(f"/api/chapters/{chapter_id}/summary")
+    assert latest_summary_response.status_code == 200
+    assert latest_summary_response.json()["id"] == summary_response.json()["id"]
 
     review_response = client.post(f"/api/projects/{project_id}/review/generate")
     assert review_response.status_code == 200

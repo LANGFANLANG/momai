@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import Chapter, ChapterDraft
+from app.db.models import Chapter, ChapterDraft, ChapterSummary
 from app.db.session import get_db
 from app.schemas.workflow import ChapterDraftRead, ChapterSummaryRead, DraftGenerateRequest
 from app.services.generation import GenerationService
@@ -36,3 +36,17 @@ def list_drafts(chapter_id: str, db: DbSession):
 def generate_summary(chapter_id: str, db: DbSession):
     _chapter_or_404(db, chapter_id)
     return GenerationService.generate_summary(db, chapter_id)
+
+
+@router.get("/{chapter_id}/summary", response_model=ChapterSummaryRead)
+def get_latest_summary(chapter_id: str, db: DbSession):
+    _chapter_or_404(db, chapter_id)
+    summary = db.scalar(
+        select(ChapterSummary)
+        .where(ChapterSummary.chapter_id == chapter_id)
+        .order_by(ChapterSummary.updated_at.desc())
+        .limit(1)
+    )
+    if summary is None:
+        raise HTTPException(status_code=404, detail="Chapter summary not found")
+    return summary
