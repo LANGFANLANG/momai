@@ -20,6 +20,7 @@ from app.db.models import (
 )
 from app.schemas.brief import ProjectBriefGeneration
 from app.schemas.chapter import (
+    ChapterGeneration,
     OutlineGeneration,
     RelationsGeneration,
     ChapterSummaryGeneration,
@@ -64,6 +65,25 @@ class GenerationService:
             )
             for index, title in enumerate(titles, start=1)
         ]
+
+    @classmethod
+    def _persist_outline_chapter(
+        cls,
+        db: Session,
+        project_id: str,
+        item: ChapterGeneration,
+        parent_id: str | None = None,
+    ) -> Chapter:
+        chapter = Chapter(
+            project_id=project_id,
+            parent_id=parent_id,
+            **item.model_dump(exclude={"children"}),
+        )
+        db.add(chapter)
+        db.flush()
+        for child in item.children:
+            cls._persist_outline_chapter(db, project_id, child, chapter.id)
+        return chapter
 
     @classmethod
     def generate_brief(cls, db: Session, project_id: str, client: LlmClient | None = None) -> ProjectBrief:
@@ -112,14 +132,17 @@ class GenerationService:
             chapters = cls._mock_outline(project.id, project.target_word_count)
         else:
             output = OutlineGeneration.model_validate(llm.complete_json(prompt))
-            chapters = [
-                Chapter(project_id=project.id, **item.model_dump(exclude={"children"}))
-                for item in output.chapters
-            ]
+            chapters = []
         for chapter in list(project.chapters):
             db.delete(chapter)
         db.flush()
-        db.add_all(chapters)
+        if isinstance(llm, MockLlmClient):
+            db.add_all(chapters)
+        else:
+            chapters = [
+                cls._persist_outline_chapter(db, project.id, item)
+                for item in output.chapters
+            ]
         project.status = "outline_ready"
         db.commit()
         for chapter in chapters:

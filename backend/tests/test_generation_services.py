@@ -103,6 +103,15 @@ def test_structured_llm_output_is_persisted(db_session):
                         "order": 1,
                         "purpose": "LLM purpose",
                         "suggested_word_count": 1000,
+                        "children": [
+                            {
+                                "title": "LLM Section",
+                                "level": 2,
+                                "order": 1,
+                                "purpose": "LLM section purpose",
+                                "suggested_word_count": 500,
+                            }
+                        ],
                     }
                 ]
             },
@@ -139,6 +148,9 @@ def test_structured_llm_output_is_persisted(db_session):
 
     assert brief.background == "LLM background"
     assert chapters[0].title == "LLM Chapter"
+    child = db_session.scalar(select(type(chapters[0])).where(type(chapters[0]).title == "LLM Section"))
+    assert child is not None
+    assert child.parent_id == chapters[0].id
     assert relations[0].next_bridge == "LLM next"
     assert draft.content == "# LLM Chapter\n\nLLM draft"
     assert summary.summary == "LLM summary"
