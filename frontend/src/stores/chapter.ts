@@ -30,6 +30,14 @@ export const useChapterStore = defineStore('chapters', () => {
     return chapterDrafts
   }
 
+  async function updateDraft(chapterId: string, draftId: string, content: string): Promise<ChapterDraft> {
+    const draft = await workflowApi.updateDraft(chapterId, draftId, content)
+    const chapterDrafts = drafts.value[chapterId] ?? []
+    const index = chapterDrafts.findIndex(({ id }) => id === draftId)
+    if (index >= 0) chapterDrafts[index] = draft
+    return draft
+  }
+
   async function loadSummary(chapterId: string): Promise<ChapterSummary> {
     const summary = await workflowApi.loadSummary(chapterId)
     summaries.value[chapterId] = summary
@@ -47,5 +55,5 @@ export const useChapterStore = defineStore('chapters', () => {
     return reviewIssues.value
   }
 
-  return { chapters, relations, drafts, summaries, reviewIssues, loading, loadChapters, loadRelations, loadDrafts, loadSummary, generateSummary, loadReviewIssues }
+  return { chapters, relations, drafts, summaries, reviewIssues, loading, loadChapters, loadRelations, loadDrafts, updateDraft, loadSummary, generateSummary, loadReviewIssues }
 })

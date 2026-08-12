@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import Chapter, ChapterDraft, ChapterSummary
 from app.db.session import get_db
-from app.schemas.workflow import ChapterDraftRead, ChapterSummaryRead, DraftGenerateRequest
+from app.schemas.workflow import ChapterDraftRead, ChapterDraftUpdate, ChapterSummaryRead, DraftGenerateRequest
 from app.services.generation import GenerationService
 
 router = APIRouter(prefix="/api/chapters", tags=["chapters"])
@@ -30,6 +30,17 @@ def generate_draft(chapter_id: str, payload: DraftGenerateRequest, db: DbSession
 def list_drafts(chapter_id: str, db: DbSession):
     _chapter_or_404(db, chapter_id)
     return list(db.scalars(select(ChapterDraft).where(ChapterDraft.chapter_id == chapter_id).order_by(ChapterDraft.version.desc())))
+
+
+@router.patch("/{chapter_id}/drafts/{draft_id}", response_model=ChapterDraftRead)
+def update_draft(chapter_id: str, draft_id: str, payload: ChapterDraftUpdate, db: DbSession) -> ChapterDraft:
+    draft = db.get(ChapterDraft, draft_id)
+    if draft is None or draft.chapter_id != chapter_id:
+        raise HTTPException(status_code=404, detail="Chapter draft not found")
+    draft.content = payload.content
+    db.commit()
+    db.refresh(draft)
+    return draft
 
 
 @router.post("/{chapter_id}/summary/generate", response_model=ChapterSummaryRead)

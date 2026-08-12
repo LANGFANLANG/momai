@@ -58,10 +58,16 @@ def test_full_mvp_api_flow(tmp_path, monkeypatch):
         json={"background": "Writing assistant research", "modules": ["outline", "draft"]},
     )
     assert context_response.status_code == 200
+    context_read_response = client.get(f"/api/projects/{project_id}/context")
+    assert context_read_response.status_code == 200
+    assert context_read_response.json()["background"] == "Writing assistant research"
 
     brief_response = client.post(f"/api/projects/{project_id}/brief/generate")
     assert brief_response.status_code == 200
     assert client.patch(f"/api/projects/{project_id}/brief", json={"goal": "Complete the MVP"}).status_code == 200
+    brief_read_response = client.get(f"/api/projects/{project_id}/brief")
+    assert brief_read_response.status_code == 200
+    assert brief_read_response.json()["id"] == brief_response.json()["id"]
 
     outline_response = client.post(f"/api/projects/{project_id}/outline/generate", json={})
     assert outline_response.status_code == 200
@@ -79,10 +85,20 @@ def test_full_mvp_api_flow(tmp_path, monkeypatch):
 
     draft_response = client.post(f"/api/chapters/{chapter_id}/drafts/generate", json={"mode": "generate"})
     assert draft_response.status_code == 200
+    draft_id = draft_response.json()["id"]
+    draft_update_response = client.patch(
+        f"/api/chapters/{chapter_id}/drafts/{draft_id}",
+        json={"content": "Manually edited draft"},
+    )
+    assert draft_update_response.status_code == 200
+    assert draft_update_response.json()["content"] == "Manually edited draft"
+    drafts_after_update = client.get(f"/api/chapters/{chapter_id}/drafts")
+    assert drafts_after_update.status_code == 200
+    assert drafts_after_update.json()[0]["content"] == "Manually edited draft"
     first_export_response = client.post(f"/api/projects/{project_id}/export/markdown")
     assert first_export_response.status_code == 200
     first_export = first_export_response.json()
-    first_draft_content = draft_response.json()["content"]
+    first_draft_content = "Manually edited draft"
     assert first_draft_content in Path(first_export["file_url"]).read_text(encoding="utf-8")
 
     monkeypatch.setattr(generation, "get_llm_client", VersionedLlmClient)

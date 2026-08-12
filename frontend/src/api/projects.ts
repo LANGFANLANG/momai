@@ -22,7 +22,9 @@ export const projectsApi = {
   remove: (projectId: string) => request<void>(`/api/projects/${projectId}`, { method: 'DELETE' }),
   saveContext: (projectId: string, payload: ProjectContextPayload) =>
     request<ProjectContext>(`/api/projects/${projectId}/context`, json('PUT', payload)),
+  getContext: (projectId: string) => request<ProjectContext>(`/api/projects/${projectId}/context`),
   generateBrief: (projectId: string) => request<ProjectBrief>(`/api/projects/${projectId}/brief/generate`, { method: 'POST' }),
+  getBrief: (projectId: string) => request<ProjectBrief>(`/api/projects/${projectId}/brief`),
   updateBrief: (projectId: string, payload: ProjectBriefUpdate) =>
     request<ProjectBrief>(`/api/projects/${projectId}/brief`, json('PATCH', payload)),
 }

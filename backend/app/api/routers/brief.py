@@ -30,9 +30,25 @@ def save_context(project_id: str, payload: ProjectContextPayload, db: DbSession)
     return context
 
 
+@router.get("/context", response_model=ProjectContextRead)
+def get_context(project_id: str, db: DbSession) -> ProjectContext:
+    project = ProjectService.get_project_or_404(db, project_id)
+    if project.context is None:
+        raise HTTPException(status_code=404, detail="Project context not found")
+    return project.context
+
+
 @router.post("/brief/generate", response_model=ProjectBriefRead)
 def generate_brief(project_id: str, db: DbSession):
     return GenerationService.generate_brief(db, project_id)
+
+
+@router.get("/brief", response_model=ProjectBriefRead)
+def get_brief(project_id: str, db: DbSession):
+    project = ProjectService.get_project_or_404(db, project_id)
+    if project.brief is None:
+        raise HTTPException(status_code=404, detail="Project brief not found")
+    return project.brief
 
 
 @router.patch("/brief", response_model=ProjectBriefRead)

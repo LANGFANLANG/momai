@@ -119,6 +119,10 @@ class DraftGenerateRequest(BaseModel):
     user_instruction: str | None = None
 
 
+class ChapterDraftUpdate(BaseModel):
+    content: str
+
+
 class ChapterDraftRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

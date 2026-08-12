@@ -31,6 +31,8 @@ export const workflowApi = {
   generateDraft: (chapterId: string, mode: DraftMode = 'generate', userInstruction?: string) =>
     request<ChapterDraft>(`/api/chapters/${chapterId}/drafts/generate`, json('POST', { mode, user_instruction: userInstruction })),
   listDrafts: (chapterId: string) => request<ChapterDraft[]>(`/api/chapters/${chapterId}/drafts`),
+  updateDraft: (chapterId: string, draftId: string, content: string) =>
+    request<ChapterDraft>(`/api/chapters/${chapterId}/drafts/${draftId}`, json('PATCH', { content })),
   loadSummary: (chapterId: string) => request<ChapterSummary>(`/api/chapters/${chapterId}/summary`),
   generateSummary: (chapterId: string) =>
     request<ChapterSummary>(`/api/chapters/${chapterId}/summary/generate`, { method: 'POST' }),
