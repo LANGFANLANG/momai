@@ -7,12 +7,17 @@ from app.schemas.chapter import (
     OutlineGeneration,
     RelationsGeneration,
 )
-from app.schemas.review import ConsistencyIssueGeneration, ConsistencyReviewGeneration
+from app.schemas.review import (
+    ConsistencyFixGeneration,
+    ConsistencyIssueGeneration,
+    ConsistencyReviewGeneration,
+)
 
 __all__ = [
     "ChapterGeneration",
     "ChapterRelationGeneration",
     "ChapterSummaryGeneration",
+    "ConsistencyFixGeneration",
     "ConsistencyIssueGeneration",
     "ConsistencyReviewGeneration",
     "OutlineGeneration",

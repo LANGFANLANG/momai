@@ -14,3 +14,13 @@ class ConsistencyIssueGeneration(BaseModel):
 class ConsistencyReviewGeneration(BaseModel):
     issues: list[ConsistencyIssueGeneration] = Field(default_factory=list)
     overall_suggestion: str | None = None
+
+
+class ChapterContentUpdate(BaseModel):
+    chapter_title: str
+    chapter_id: str | None = None
+
+
+class ConsistencyFixGeneration(BaseModel):
+    chapter_updates: list[ChapterContentUpdate] = Field(default_factory=list)
+    fix_summary: str | None = None

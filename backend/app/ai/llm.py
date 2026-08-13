@@ -17,25 +17,36 @@ class LlmClient(ABC):
 
 
 class DeepSeekClient(LlmClient):
-    def __init__(self, api_key: str, base_url: str, model: str = "deepseek-flash"):
+    def __init__(self, api_key: str, base_url: str, model: str = "deepseek-v4-flash"):
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
-        if model != "deepseek-flash":
-            raise ValueError("Only the deepseek-flash model is supported")
-        self.model = "deepseek-flash"
+        if model != "deepseek-v4-flash":
+            raise ValueError("Only the deepseek-v4-flash model is supported")
+        self.model = "deepseek-v4-flash"
 
-    def _complete(self, prompt: str) -> str:
+    def _complete(self, prompt: str, *, json_object: bool = False) -> str:
+        payload = {
+            "model": self.model,
+            "messages": [{"role": "user", "content": prompt}],
+            "thinking": {"type": "disabled"},
+        }
+        if json_object:
+            payload["response_format"] = {"type": "json_object"}
         response = httpx.post(
             f"{self.base_url}/chat/completions",
             headers={"Authorization": f"Bearer {self.api_key}"},
-            json={"model": self.model, "messages": [{"role": "user", "content": prompt}]},
-            timeout=60.0,
+            json=payload,
+            timeout=180.0,
         )
         response.raise_for_status()
-        return response.json()["choices"][0]["message"]["content"]
+        message = response.json()["choices"][0]["message"]
+        content = (message.get("content") or "").strip()
+        if not content:
+            content = (message.get("reasoning_content") or "").strip()
+        return content
 
     def complete_json(self, prompt: str) -> dict:
-        content = self._complete(prompt).strip()
+        content = self._complete(prompt, json_object=True).strip()
         if content.startswith("```"):
             content = content.split("\n", 1)[1].rsplit("```", 1)[0].strip()
         parsed = json.loads(content)

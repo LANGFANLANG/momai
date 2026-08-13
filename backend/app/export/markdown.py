@@ -1,28 +1,17 @@
-import re
-
 from app.db.models import Chapter, ChapterDraft, Project
+from app.export.common import chapters_by_id, covered_by_ancestor_draft, draft_body
 
 
 def build_markdown(project: Project, chapters: list[Chapter], drafts: dict[str, ChapterDraft]) -> str:
+    by_id = chapters_by_id(chapters)
     sections = [f"# {project.title}"]
     for chapter in chapters:
-        heading = f"{'#' * max(chapter.level, 1)} {chapter.title}"
-        sections.append(heading)
+        if covered_by_ancestor_draft(chapter, by_id, drafts):
+            continue
+        sections.append(f"{'#' * max(chapter.level, 1)} {chapter.title}")
         draft = drafts.get(chapter.id)
         if draft:
-            lines = draft.content.splitlines()
-            first_line_is_chapter_heading = bool(
-                lines
-                and re.fullmatch(
-                    rf"#+\s+{re.escape(chapter.title)}\s*#*",
-                    lines[0].strip(),
-                )
-            )
-            if first_line_is_chapter_heading:
-                lines = lines[1:]
-                if lines and not lines[0].strip():
-                    lines = lines[1:]
-            content = "\n".join(lines)
+            content = draft_body(chapter, draft)
             if content:
                 sections.append(content)
     return "\n\n".join(sections) + "\n"

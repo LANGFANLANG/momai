@@ -6,6 +6,7 @@ import type {
   ChapterRelationUpdate,
   ChapterSummary,
   ChapterUpdate,
+  ConsistencyFixResult,
   ConsistencyIssue,
   ConsistencyIssueUpdate,
   DraftMode,
@@ -44,6 +45,8 @@ export const workflowApi = {
   listIssues: (projectId: string) => request<ConsistencyIssue[]>(`/api/projects/${projectId}/review`),
   updateIssue: (projectId: string, issueId: string, payload: ConsistencyIssueUpdate) =>
     request<ConsistencyIssue>(`/api/projects/${projectId}/review/${issueId}`, json('PATCH', payload)),
+  fixIssue: (projectId: string, issueId: string) =>
+    request<ConsistencyFixResult>(`/api/projects/${projectId}/review/${issueId}/fix`, { method: 'POST' }),
   exportMarkdown: (projectId: string) => request<ExportRecord>(`/api/projects/${projectId}/export/markdown`, { method: 'POST' }),
   exportDocx: (projectId: string) => request<ExportRecord>(`/api/projects/${projectId}/export/docx`, { method: 'POST' }),
   downloadUrl: (exportId: string) => `${API_BASE_URL}/api/exports/${exportId}/download`,

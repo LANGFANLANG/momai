@@ -168,6 +168,12 @@ class ConsistencyIssueUpdate(BaseModel):
     status: Literal[*ISSUE_STATUSES] | None = None
 
 
+class ConsistencyFixRead(BaseModel):
+    issue: ConsistencyIssueRead
+    drafts: list[ChapterDraftRead] = Field(default_factory=list)
+    fix_summary: str | None = None
+
+
 class ExportRecordRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

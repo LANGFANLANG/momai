@@ -9,7 +9,7 @@ from app.db.models import ExportRecord
 from app.core.config import get_settings
 from app.db.session import get_db
 from app.schemas.workflow import ExportRecordRead
-from app.services.export import ExportService
+from app.services.export import ExportService, download_filename
 
 router = APIRouter(tags=["export"])
 DbSession = Annotated[Session, Depends(get_db)]
@@ -36,4 +36,7 @@ def download_export(export_id: str, db: DbSession) -> FileResponse:
         raise HTTPException(status_code=404, detail="Export file not found")
     if not file_path.is_file():
         raise HTTPException(status_code=404, detail="Export file not found")
-    return FileResponse(file_path, filename=file_path.name)
+    return FileResponse(
+        file_path,
+        filename=download_filename(record.project.title, file_path.suffix),
+    )

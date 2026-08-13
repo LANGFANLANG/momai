@@ -63,6 +63,12 @@ export interface ConsistencyIssue {
 
 export type ConsistencyIssueUpdate = Partial<Omit<ConsistencyIssue, 'id' | 'project_id' | 'chapter_id'>>
 
+export interface ConsistencyFixResult {
+  issue: ConsistencyIssue
+  drafts: ChapterDraft[]
+  fix_summary: string | null
+}
+
 export interface ExportRecord {
   id: string
   project_id: string
