@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.ai.json_util import LlmError
-from app.api.routers import abstracts, auth, brief, chapters, export, health, outline, projects, references, relations, review
+from app.api.routers import abstracts, auth, brief, chapters, codebase, export, health, outline, projects, references, relations, review
 
 
 def create_app() -> FastAPI:
@@ -27,6 +27,7 @@ def create_app() -> FastAPI:
     app.include_router(auth.router)
     app.include_router(projects.router)
     app.include_router(brief.router)
+    app.include_router(codebase.router)
     app.include_router(abstracts.router)
     app.include_router(references.router)
     app.include_router(outline.router)

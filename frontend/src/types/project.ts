@@ -77,6 +77,46 @@ export interface ProjectBrief {
 
 export type ProjectBriefUpdate = Partial<Omit<ProjectBrief, 'id' | 'project_id'>>
 
+export interface FileTreeSummary {
+  root: string
+  total_files: number
+  included_files: string[]
+  ignored_summary: Record<string, number>
+}
+
+export interface CodebaseFact {
+  category: string
+  title: string
+  content: string
+  evidence_files: string[]
+  confidence: string
+  chapter_tags: string[]
+}
+
+export interface CodebaseAnalysis {
+  summary: string
+  tech_stack: Record<string, string[]>
+  file_tree: FileTreeSummary
+  facts: CodebaseFact[]
+  missing_info: string[]
+  warnings: string[]
+}
+
+export interface CodebaseAnalyzeRequest {
+  root_path: string
+  include_tests?: boolean
+  include_docs?: boolean
+  max_files?: number
+  user_hint?: string | null
+}
+
+export interface CodebaseApplyResult {
+  material_id: string | null
+  brief_updated: boolean
+  context_updated: boolean
+  locked_facts_added: number
+}
+
 export interface DocxStyle {
   heading_east_asia: string
   heading_ascii: string
