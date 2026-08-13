@@ -76,3 +76,31 @@ export interface ProjectBrief {
 }
 
 export type ProjectBriefUpdate = Partial<Omit<ProjectBrief, 'id' | 'project_id'>>
+
+export interface DocxStyle {
+  heading_east_asia: string
+  heading_ascii: string
+  body_east_asia: string
+  body_ascii: string
+  heading1_size_pt: number
+  heading2_size_pt: number
+  heading3_size_pt: number
+  body_size_pt: number
+  first_line_indent_chars: number
+  space_before_pt: number
+  space_after_pt: number
+  line_spacing_multiple: number
+}
+
+export interface PaperAbstract {
+  id: string
+  project_id: string
+  title_en: string | null
+  abstract_zh: string | null
+  abstract_en: string | null
+  keywords_zh: string[] | null
+  keywords_en: string[] | null
+}
+
+export type PaperAbstractUpdate = Partial<Omit<PaperAbstract, 'id' | 'project_id'>>
+

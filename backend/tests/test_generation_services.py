@@ -10,9 +10,15 @@ from app.db.models import (
     Project,
     ProjectBrief,
     ProjectContext,
+    PaperAbstract,
 )
 from app.ai.llm import LlmClient, MockLlmClient
-from app.services.generation import GenerationService, OutlineRegenerationConflict
+from app.services.generation import (
+    ChapterDraftRequired,
+    ConsistencyFixConflict,
+    GenerationService,
+    OutlineRegenerationConflict,
+)
 
 
 class ScriptedLlmClient(LlmClient):
@@ -25,6 +31,19 @@ class ScriptedLlmClient(LlmClient):
 
     def complete_markdown(self, prompt: str) -> str:
         return self.markdown_response
+
+
+class RecordingJsonClient(LlmClient):
+    def __init__(self, payload: dict):
+        self.prompt = ""
+        self.payload = payload
+
+    def complete_json(self, prompt: str) -> dict:
+        self.prompt = prompt
+        return self.payload
+
+    def complete_markdown(self, prompt: str) -> str:
+        raise AssertionError("Relations should not request Markdown")
 
 
 class ReviewPromptClient(LlmClient):
@@ -222,6 +241,86 @@ def test_outline_regeneration_force_replaces_downstream_work(db_session):
     assert db_session.get(Chapter, chapter.id) is None
 
 
+def test_generate_relations_prompt_includes_outline_titles(db_session):
+    project = Project(type="thesis", title="LifePilot", language="zh")
+    db_session.add_all(
+        [
+            project,
+            ProjectBrief(
+                project=project,
+                background="面向学生的学习规划系统研究。",
+                goal="设计学习规划系统。",
+            ),
+            Chapter(
+                project=project,
+                title="绪论",
+                level=1,
+                order=1,
+                purpose="交代研究背景。",
+            ),
+        ]
+    )
+    db_session.commit()
+    client = RecordingJsonClient(
+        {
+            "relations": [
+                {
+                    "chapter_title": "绪论",
+                    "previous_bridge": "从研究背景切入。",
+                    "next_bridge": "引出相关理论。",
+                }
+            ]
+        }
+    )
+
+    GenerationService.generate_relations(db_session, project.id, client)
+
+    assert "绪论" in client.prompt
+    assert "交代研究背景。" in client.prompt
+    assert "面向学生的学习规划系统研究。" in client.prompt
+    assert "Chapter object" not in client.prompt
+    assert "ProjectBrief object" not in client.prompt
+
+
+def test_generate_brief_accepts_nested_project_brief_payload(db_session):
+    project = Project(type="thesis", title="LifePilot", language="zh")
+    db_session.add(project)
+    db_session.flush()
+    db_session.add(
+        ProjectContext(
+            project_id=project.id,
+            background="面向学生的学习规划系统研究。",
+            goal="设计学习规划系统。",
+        )
+    )
+    db_session.commit()
+    client = ScriptedLlmClient(
+        [
+            {
+                "project_brief": {
+                    "title_explanation": "LifePilot",
+                    "background": "面向学生的学习规划系统研究。",
+                    "core_problem": "学习规划缺少系统支持。",
+                    "goal": "设计学习规划系统。",
+                    "significance": "提升学习规划效率。",
+                    "technical_route": "按需求、设计、实现与测试推进。",
+                    "modules": ["学习计划"],
+                    "expected_result": "形成项目报告初稿。",
+                    "writing_boundary": "仅基于用户提供的项目事实写作。",
+                    "missing_info": ["格式与字数要求"],
+                    "locked_facts": ["LifePilot"],
+                }
+            }
+        ],
+        "",
+    )
+
+    brief = GenerationService.generate_brief(db_session, project.id, client)
+
+    assert brief.background == "面向学生的学习规划系统研究。"
+    assert brief.missing_info == ["格式与字数要求"]
+
+
 def test_consistency_review_uses_only_latest_draft_per_chapter(db_session):
     project = Project(type="thesis", title="Latest review", language="zh")
     chapter = Chapter(project=project, title="Chapter", level=1, order=1)
@@ -249,3 +348,333 @@ def test_consistency_review_uses_only_latest_draft_per_chapter(db_session):
 
     assert "LATEST_DRAFT_CONTENT" in client.prompt
     assert "STALE_DRAFT_CONTENT" not in client.prompt
+
+
+def test_parent_draft_marks_matched_child_status_drafted(db_session):
+    project = Project(type="thesis", title="Hive", language="zh")
+    parent = Chapter(project=project, title="绪论", level=1, order=1, status="relation_ready")
+    matched = Chapter(
+        project=project,
+        parent=parent,
+        title="项目背景与意义",
+        level=2,
+        order=1,
+        status="planned",
+    )
+    unmatched = Chapter(
+        project=project,
+        parent=parent,
+        title="未出现的小节",
+        level=2,
+        order=2,
+        status="planned",
+    )
+    db_session.add_all([project, parent, matched, unmatched])
+    db_session.commit()
+    client = ScriptedLlmClient(
+        [],
+        "# 第1章 绪论\n\n引言。\n\n## 1.1 项目背景与意义\n\n背景段落。\n",
+    )
+
+    GenerationService.generate_draft(db_session, parent.id, "generate", client=client)
+
+    db_session.refresh(parent)
+    db_session.refresh(matched)
+    db_session.refresh(unmatched)
+    assert parent.status == "drafted"
+    assert matched.status == "drafted"
+    assert unmatched.status == "planned"
+
+
+def test_sync_matched_child_statuses_from_existing_parent_draft(db_session):
+    project = Project(type="thesis", title="Hive", language="zh")
+    parent = Chapter(project=project, title="绪论", level=1, order=1, status="drafted")
+    child = Chapter(
+        project=project,
+        parent=parent,
+        title="国内外研究现状",
+        level=2,
+        order=1,
+        status="planned",
+    )
+    db_session.add_all(
+        [
+            project,
+            parent,
+            child,
+            ChapterDraft(
+                chapter=parent,
+                version=1,
+                content="# 第1章 绪论\n\n## 1.2 国内外研究现状\n\n现状。\n",
+                generation_mode="generate",
+            ),
+        ]
+    )
+    db_session.commit()
+
+    GenerationService.sync_matched_child_draft_statuses(db_session, project.id)
+
+    db_session.refresh(child)
+    assert child.status == "drafted"
+
+
+class FixPromptClient(LlmClient):
+    def __init__(self, payload: dict, markdown: str):
+        self.prompt = ""
+        self.markdown_prompt = ""
+        self.payload = payload
+        self.markdown = markdown
+
+    def complete_json(self, prompt: str) -> dict:
+        self.prompt = prompt
+        return self.payload
+
+    def complete_markdown(self, prompt: str) -> str:
+        self.markdown_prompt = prompt
+        return self.markdown
+
+
+def _project_with_draft(db_session, title="Chapter", content="original draft"):
+    project = Project(type="thesis", title="Fixable", language="zh")
+    chapter = Chapter(project=project, title=title, level=1, order=1, status="drafted")
+    draft = ChapterDraft(
+        chapter=chapter,
+        version=1,
+        content=content,
+        generation_mode="generate",
+    )
+    db_session.add_all([project, chapter, draft])
+    db_session.commit()
+    return project, chapter, draft
+
+
+def test_fix_consistency_issue_writes_new_draft_and_marks_fixed(db_session):
+    project, chapter, draft = _project_with_draft(db_session, content="ODS stores raw data.")
+    issue = ConsistencyIssue(
+        project_id=project.id,
+        chapter_id=chapter.id,
+        severity="high",
+        type="definition_consistency",
+        description="ODS definition is inconsistent.",
+        suggestion="Clarify that ODS stores raw data without cleaning.",
+    )
+    db_session.add(issue)
+    db_session.commit()
+    client = FixPromptClient(
+        {
+            "chapter_updates": [{"chapter_title": chapter.title}],
+            "fix_summary": "Aligned the ODS definition.",
+        },
+        "ODS stores raw data without cleaning.",
+    )
+
+    updated_issue, drafts, summary = GenerationService.fix_consistency_issue(
+        db_session, project.id, issue.id, client
+    )
+
+    assert updated_issue.status == "fixed"
+    assert summary == "Aligned the ODS definition."
+    assert "Clarify that ODS stores raw data without cleaning." in client.prompt
+    assert "ODS definition is inconsistent." in client.prompt
+    assert "ODS stores raw data." in client.markdown_prompt
+    assert drafts[0].content == "ODS stores raw data without cleaning."
+    assert drafts[0].version == 2
+    assert drafts[0].generation_mode == "rewrite"
+    assert db_session.get(ChapterDraft, draft.id).content == "ODS stores raw data."
+
+
+def test_fix_consistency_issue_matches_normalized_chapter_title(db_session):
+    project, chapter, _ = _project_with_draft(db_session, title="系统设计", content="old")
+    issue = ConsistencyIssue(
+        project_id=project.id,
+        severity="medium",
+        type="tool_consistency",
+        description="Tool names differ.",
+        suggestion="Use DataX throughout.",
+    )
+    db_session.add(issue)
+    db_session.commit()
+    client = FixPromptClient(
+        {"chapter_updates": [{"chapter_title": "第4章 系统设计"}]},
+        "Use DataX only.",
+    )
+
+    _, drafts, _ = GenerationService.fix_consistency_issue(
+        db_session, project.id, issue.id, client
+    )
+
+    assert drafts[0].chapter_id == chapter.id
+    assert drafts[0].content == "Use DataX only."
+
+
+def test_fix_consistency_issue_rejects_closed_issue(db_session):
+    project, chapter, _ = _project_with_draft(db_session)
+    issue = ConsistencyIssue(
+        project_id=project.id,
+        chapter_id=chapter.id,
+        severity="low",
+        type="completeness",
+        description="Placeholder remains.",
+        status="ignored",
+    )
+    db_session.add(issue)
+    db_session.commit()
+
+    with pytest.raises(ConsistencyFixConflict, match="Only open"):
+        GenerationService.fix_consistency_issue(
+            db_session, project.id, issue.id, MockLlmClient()
+        )
+
+
+def test_mock_fix_appends_revision_note_to_linked_chapter(db_session):
+    project, chapter, _ = _project_with_draft(db_session, content="chapter body")
+    issue = ConsistencyIssue(
+        project_id=project.id,
+        chapter_id=chapter.id,
+        severity="low",
+        type="structure_review",
+        description="Check structure.",
+        suggestion="Add a transition.",
+    )
+    db_session.add(issue)
+    db_session.commit()
+
+    updated_issue, drafts, summary = GenerationService.fix_consistency_issue(
+        db_session, project.id, issue.id, MockLlmClient()
+    )
+
+    assert updated_issue.status == "fixed"
+    assert drafts[0].content.endswith("已按一致性建议修订。")
+    assert summary == "已根据建议修订相关章节。"
+
+
+def test_fix_consistency_issue_rewrites_parent_draft_for_child_title(db_session):
+    project = Project(type="thesis", title="Hive", language="zh")
+    parent = Chapter(project=project, title="数据仓库建设与分析", level=1, order=1, status="drafted")
+    child = Chapter(
+        project=project,
+        parent=parent,
+        title="Hive环境搭建",
+        level=2,
+        order=1,
+        status="drafted",
+    )
+    db_session.add_all(
+        [
+            project,
+            parent,
+            child,
+            ChapterDraft(
+                chapter=parent,
+                version=1,
+                content="# 数据仓库建设与分析\n\n## Hive环境搭建\n\n环境未介绍。\n",
+                generation_mode="generate",
+            ),
+        ]
+    )
+    db_session.commit()
+    issue = ConsistencyIssue(
+        project_id=project.id,
+        chapter_id=child.id,
+        severity="high",
+        type="structure_order",
+        description="环境搭建顺序不对。",
+        suggestion="先介绍 Hive 环境再建表。",
+    )
+    db_session.add(issue)
+    db_session.commit()
+    rewritten = "# 数据仓库建设与分析\n\n## Hive环境搭建\n\n先介绍环境再建表。"
+    client = FixPromptClient(
+        {"chapter_updates": [{"chapter_title": "Hive环境搭建"}]},
+        rewritten,
+    )
+
+    _, drafts, _ = GenerationService.fix_consistency_issue(
+        db_session, project.id, issue.id, client
+    )
+
+    assert drafts[0].chapter_id == parent.id
+    assert drafts[0].content == rewritten
+    assert drafts[0].version == 2
+    assert "Hive环境搭建" in client.markdown_prompt
+    assert "环境未介绍" in client.markdown_prompt
+    assert "先介绍 Hive 环境再建表" in client.markdown_prompt
+
+
+def test_generate_paper_abstract_requires_drafts(db_session):
+    project = Project(type="thesis", title="No drafts", language="zh")
+    db_session.add(project)
+    db_session.commit()
+
+    with pytest.raises(ChapterDraftRequired):
+        GenerationService.generate_paper_abstract(db_session, project.id, MockLlmClient())
+
+
+def test_generate_paper_abstract_persists_llm_output(db_session):
+    project = Project(type="thesis", title="Hive 电商数仓", language="zh")
+    chapter = Chapter(project=project, title="绪论", level=1, order=1)
+    draft = ChapterDraft(
+        chapter=chapter,
+        version=1,
+        content="# 绪论\n\n介绍电商数据仓库背景。",
+        generation_mode="generate",
+    )
+    db_session.add_all([project, chapter, draft])
+    db_session.commit()
+    client = RecordingJsonClient(
+        {
+            "title_en": "E-commerce Data Warehouse Based on Hive",
+            "abstract_zh": "本文设计并实现了基于 Hive 的电商数据仓库。",
+            "abstract_en": "This paper designs a Hive-based e-commerce data warehouse.",
+            "keywords_zh": ["Hive", "数据仓库"],
+            "keywords_en": ["Hive", "data warehouse"],
+        }
+    )
+
+    abstract = GenerationService.generate_paper_abstract(db_session, project.id, client)
+
+    assert abstract.abstract_zh == "本文设计并实现了基于 Hive 的电商数据仓库。"
+    assert abstract.abstract_en.startswith("This paper")
+    assert abstract.keywords_zh == ["Hive", "数据仓库"]
+    assert abstract.keywords_en == ["Hive", "data warehouse"]
+    assert db_session.get(PaperAbstract, abstract.id) is not None
+    assert "Hive 电商数仓" in client.prompt
+    assert "介绍电商数据仓库背景" in client.prompt
+    db_session.refresh(project)
+    assert project.paper_abstract.id == abstract.id
+
+
+def test_generate_paper_abstract_overwrites_existing(db_session):
+    project = Project(type="thesis", title="Overwrite", language="zh")
+    chapter = Chapter(project=project, title="绪论", level=1, order=1)
+    draft = ChapterDraft(
+        chapter=chapter, version=1, content="正文", generation_mode="generate"
+    )
+    existing = PaperAbstract(
+        project=project,
+        abstract_zh="旧摘要",
+        abstract_en="old",
+        keywords_zh=["旧"],
+        keywords_en=["old"],
+    )
+    db_session.add_all([project, chapter, draft, existing])
+    db_session.commit()
+    original_id = existing.id
+    client = ScriptedLlmClient(
+        [
+            {
+                "title_en": "Overwrite",
+                "abstract_zh": "新摘要",
+                "abstract_en": "new",
+                "keywords_zh": ["新"],
+                "keywords_en": ["new"],
+            }
+        ],
+        "",
+    )
+
+    abstract = GenerationService.generate_paper_abstract(db_session, project.id, client)
+
+    assert abstract.id == original_id
+    assert abstract.abstract_zh == "新摘要"
+    assert db_session.scalar(select(func.count()).select_from(PaperAbstract)) == 1

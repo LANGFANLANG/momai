@@ -25,7 +25,7 @@ alembic upgrade head
 uvicorn app.main:app --reload
 ```
 
-`backend/.env` is local-only and must not be committed. The example file contains no secret. The default settings use the user-managed PostgreSQL instance above and the `deepseek-flash` model. To enable real DeepSeek generation, set the `DEEPSEEK_V4` value in `backend/.env`; when it is empty, the app uses deterministic mock generation.
+`backend/.env` is local-only and must not be committed. The example file contains no secret. The default settings use the user-managed PostgreSQL instance above and the `deepseek-v4-flash` model. To enable real DeepSeek generation, set the `DEEPSEEK_V4` value in `backend/.env`; when it is empty, the app uses deterministic mock generation.
 
 Put the real PostgreSQL password only in the untracked `backend/.env`; replace `YOUR_PASSWORD` in the copied `DATABASE_URL` there with that local value.
 

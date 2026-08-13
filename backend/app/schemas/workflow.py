@@ -168,6 +168,32 @@ class ConsistencyIssueUpdate(BaseModel):
     status: Literal[*ISSUE_STATUSES] | None = None
 
 
+class ConsistencyFixRead(BaseModel):
+    issue: ConsistencyIssueRead
+    drafts: list[ChapterDraftRead] = Field(default_factory=list)
+    fix_summary: str | None = None
+
+
+class PaperAbstractRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    project_id: str
+    title_en: str | None
+    abstract_zh: str | None
+    abstract_en: str | None
+    keywords_zh: list[str] | None
+    keywords_en: list[str] | None
+
+
+class PaperAbstractUpdate(BaseModel):
+    title_en: str | None = None
+    abstract_zh: str | None = None
+    abstract_en: str | None = None
+    keywords_zh: list[str] | None = None
+    keywords_en: list[str] | None = None
+
+
 class ExportRecordRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

@@ -86,6 +86,9 @@ class Project(TimestampMixin, Base):
     export_records: Mapped[list["ExportRecord"]] = relationship(
         back_populates="project", cascade="all, delete-orphan"
     )
+    paper_abstract: Mapped["PaperAbstract | None"] = relationship(
+        back_populates="project", cascade="all, delete-orphan", uselist=False
+    )
 
 
 class ProjectContext(TimestampMixin, Base):
@@ -130,6 +133,20 @@ class ProjectBrief(TimestampMixin, Base):
     locked_facts: Mapped[list[str] | None] = mapped_column(JSON)
 
     project: Mapped[Project] = relationship(back_populates="brief")
+
+
+class PaperAbstract(TimestampMixin, Base):
+    __tablename__ = "paper_abstracts"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_string)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), unique=True)
+    title_en: Mapped[str | None] = mapped_column(String(512))
+    abstract_zh: Mapped[str | None] = mapped_column(Text)
+    abstract_en: Mapped[str | None] = mapped_column(Text)
+    keywords_zh: Mapped[list[str] | None] = mapped_column(JSON)
+    keywords_en: Mapped[list[str] | None] = mapped_column(JSON)
+
+    project: Mapped[Project] = relationship(back_populates="paper_abstract")
 
 
 class Chapter(TimestampMixin, Base):

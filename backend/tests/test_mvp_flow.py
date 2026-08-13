@@ -1,4 +1,5 @@
 from pathlib import Path
+from urllib.parse import unquote
 
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
@@ -100,6 +101,7 @@ def test_full_mvp_api_flow(tmp_path, monkeypatch):
     assert first_export_response.status_code == 200
     first_export = first_export_response.json()
     first_draft_content = "Manually edited draft"
+    assert Path(first_export["file_url"]).name == "Paper Agent.md"
     assert first_draft_content in Path(first_export["file_url"]).read_text(encoding="utf-8")
 
     monkeypatch.setattr(generation, "get_llm_client", VersionedLlmClient)
@@ -119,6 +121,18 @@ def test_full_mvp_api_flow(tmp_path, monkeypatch):
     assert client.get(f"/api/projects/{project_id}/review").status_code == 200
     assert client.patch(f"/api/projects/{project_id}/review/{issue_id}", json={"status": "fixed"}).status_code == 200
 
+    monkeypatch.setattr(generation, "get_llm_client", MockLlmClient)
+    second_review = client.post(f"/api/projects/{project_id}/review/generate")
+    assert second_review.status_code == 200
+    open_issue_id = next(item["id"] for item in second_review.json() if item["status"] == "open")
+    fix_response = client.post(f"/api/projects/{project_id}/review/{open_issue_id}/fix")
+    assert fix_response.status_code == 200
+    assert fix_response.json()["issue"]["status"] == "fixed"
+    assert fix_response.json()["drafts"]
+    assert "已按一致性建议修订" in fix_response.json()["drafts"][0]["content"]
+    closed_fix = client.post(f"/api/projects/{project_id}/review/{open_issue_id}/fix")
+    assert closed_fix.status_code == 409
+
     markdown_response = client.post(f"/api/projects/{project_id}/export/markdown")
     docx_response = client.post(f"/api/projects/{project_id}/export/docx")
     assert markdown_response.status_code == 200
@@ -129,7 +143,9 @@ def test_full_mvp_api_flow(tmp_path, monkeypatch):
     for response in (markdown_response, docx_response):
         record = response.json()
         assert Path(record["file_url"]).is_file()
-        assert client.get(f"/api/exports/{record['id']}/download").status_code == 200
+        download = client.get(f"/api/exports/{record['id']}/download")
+        assert download.status_code == 200
+        assert "Paper Agent" in unquote(download.headers["content-disposition"])
 
     outside_file = tmp_path.parent / "outside-export.txt"
     outside_file.write_text("outside", encoding="utf-8")
@@ -189,3 +205,52 @@ def test_summary_generation_without_draft_returns_actionable_409(monkeypatch):
     assert response.json() == {
         "detail": "Generate a chapter draft before generating its summary."
     }
+
+
+def test_paper_abstract_api_generate_get_and_patch(monkeypatch):
+    monkeypatch.setattr(generation, "get_llm_client", MockLlmClient)
+    client, _ = create_client()
+    project_id = client.post(
+        "/api/projects",
+        json={"type": "thesis", "title": "Hive 电商数仓", "language": "zh"},
+    ).json()["id"]
+    chapter_id = client.post(
+        f"/api/projects/{project_id}/outline/generate", json={}
+    ).json()[0]["id"]
+
+    missing = client.get(f"/api/projects/{project_id}/abstract")
+    assert missing.status_code == 404
+
+    without_draft = client.post(f"/api/projects/{project_id}/abstract/generate")
+    assert without_draft.status_code == 409
+
+    client.post(f"/api/chapters/{chapter_id}/drafts/generate", json={"mode": "generate"})
+    generated = client.post(f"/api/projects/{project_id}/abstract/generate")
+    assert generated.status_code == 200
+    body = generated.json()
+    assert "本文围绕" in body["abstract_zh"]
+    assert body["abstract_en"]
+    assert body["keywords_zh"]
+
+    saved = client.patch(
+        f"/api/projects/{project_id}/abstract",
+        json={
+            "abstract_zh": "手工修改后的中文摘要。",
+            "keywords_zh": ["Hive", "电商"],
+        },
+    )
+    assert saved.status_code == 200
+    assert saved.json()["abstract_zh"] == "手工修改后的中文摘要。"
+    assert saved.json()["id"] == body["id"]
+
+    fetched = client.get(f"/api/projects/{project_id}/abstract")
+    assert fetched.status_code == 200
+    assert fetched.json()["abstract_zh"] == "手工修改后的中文摘要。"
+    assert fetched.json()["keywords_zh"] == ["Hive", "电商"]
+
+    markdown = client.post(f"/api/projects/{project_id}/export/markdown")
+    assert markdown.status_code == 200
+    content = Path(markdown.json()["file_url"]).read_text(encoding="utf-8")
+    assert content.index("# 摘要") < content.index("# Abstract")
+    assert "手工修改后的中文摘要。" in content
+    assert "关键词：Hive；电商" in content

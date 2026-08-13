@@ -40,7 +40,15 @@ def build_chapter_summary_workflow(*nodes: GenerationNode):
     return _workflow(*nodes)
 
 
+def build_paper_abstract_workflow(*nodes: GenerationNode):
+    return _workflow(*nodes)
+
+
 def build_consistency_review_workflow(*nodes: GenerationNode):
+    return _workflow(*nodes)
+
+
+def build_consistency_fix_workflow(*nodes: GenerationNode):
     return _workflow(*nodes)
 
 
@@ -50,4 +58,6 @@ build_outline_graph = build_outline_workflow
 build_relation_graph = build_relations_workflow
 build_chapter_draft_graph = build_chapter_draft_workflow
 build_chapter_summary_graph = build_chapter_summary_workflow
+build_paper_abstract_graph = build_paper_abstract_workflow
 build_consistency_review_graph = build_consistency_review_workflow
+build_consistency_fix_graph = build_consistency_fix_workflow

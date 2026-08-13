@@ -4,7 +4,8 @@ import { useRoute, useRouter } from 'vue-router'
 import AppButton from '@/components/ui/AppButton.vue'
 import { useChapterStore } from '@/stores/chapter'
 import { workflowApi } from '@/api/workflow'
-import type { DraftMode } from '@/types/chapter'
+import type { Chapter, ChapterDraft, DraftMode } from '@/types/chapter'
+import { extractMarkdownSection, replaceMarkdownSection } from '@/utils/markdownSections'
 
 const route = useRoute()
 const router = useRouter()
@@ -12,6 +13,7 @@ const projectId = String(route.params.projectId)
 const store = useChapterStore()
 const selectedId = ref(String(route.params.chapterId || ''))
 const selectedDraftId = ref('')
+const inheritedFrom = ref<{ chapterId: string; chapterTitle: string } | null>(null)
 const mode = ref<DraftMode>('generate')
 const instruction = ref('')
 const content = ref('')
@@ -19,16 +21,60 @@ const savedContent = ref('')
 const busy = ref(false)
 const message = ref('')
 const selected = computed(() => store.chapters.find(chapter => chapter.id === selectedId.value))
-const drafts = computed(() => store.drafts[selectedId.value] || [])
+const sourceChapterId = computed(() => inheritedFrom.value?.chapterId || selectedId.value)
+const drafts = computed(() => store.drafts[sourceChapterId.value] || [])
 const isDirty = computed(() => content.value !== savedContent.value)
 
-function loadDraft(draftId: string) {
-  const draft = drafts.value.find(item => item.id === draftId)
-  if (!draft) return
+function ancestorsOf(chapterId: string): Chapter[] {
+  const byId = new Map(store.chapters.map(chapter => [chapter.id, chapter]))
+  const ancestors: Chapter[] = []
+  let current = byId.get(chapterId)
+  while (current?.parent_id) {
+    const parent = byId.get(current.parent_id)
+    if (!parent) break
+    ancestors.push(parent)
+    current = parent
+  }
+  return ancestors
+}
+
+function clearEditor() {
+  inheritedFrom.value = null
+  selectedDraftId.value = ''
+  content.value = ''
+  savedContent.value = ''
+}
+
+function applyOwnDraft(draft: ChapterDraft) {
+  inheritedFrom.value = null
   selectedDraftId.value = draft.id
   content.value = draft.content
   savedContent.value = draft.content
 }
+
+function applyInheritedDraft(parent: Chapter, draft: ChapterDraft, chapter: Chapter) {
+  const section = extractMarkdownSection(draft.content, chapter.title, chapter.level)
+  if (!section) return false
+  inheritedFrom.value = { chapterId: parent.id, chapterTitle: parent.title }
+  selectedDraftId.value = draft.id
+  content.value = section
+  savedContent.value = section
+  return true
+}
+
+function loadDraft(draftId: string) {
+  const draft = drafts.value.find(item => item.id === draftId)
+  const chapter = selected.value
+  if (!draft || !chapter) return
+  if (inheritedFrom.value) {
+    const parent = store.chapters.find(item => item.id === inheritedFrom.value?.chapterId)
+    if (parent && applyInheritedDraft(parent, draft, chapter)) return
+    message.value = '该版本中未匹配到本节标题'
+    return
+  }
+  applyOwnDraft(draft)
+}
+
 function chooseDraft(draftId: string) {
   if (
     draftId !== selectedDraftId.value
@@ -37,32 +83,69 @@ function chooseDraft(draftId: string) {
   ) return
   loadDraft(draftId)
 }
+
+async function resolveContent(chapterId: string) {
+  const chapter = store.chapters.find(item => item.id === chapterId)
+  try {
+    const ownDrafts = await store.loadDrafts(chapterId)
+    if (ownDrafts[0]) {
+      applyOwnDraft(ownDrafts[0])
+      return
+    }
+    if (!chapter) {
+      clearEditor()
+      return
+    }
+    for (const ancestor of ancestorsOf(chapterId)) {
+      const ancestorDrafts = store.drafts[ancestor.id]?.length
+        ? store.drafts[ancestor.id]
+        : await store.loadDrafts(ancestor.id)
+      const latest = ancestorDrafts[0]
+      if (latest && applyInheritedDraft(ancestor, latest, chapter)) return
+    }
+    clearEditor()
+  } catch {
+    clearEditor()
+  }
+}
+
 async function choose(id: string) {
   if (isDirty.value && !window.confirm('当前草稿尚未保存，仍要切换章节吗？')) return
   selectedId.value = id
   await router.replace(`/projects/${projectId}/chapters/${id}`)
-  try {
-    const chapterDrafts = await store.loadDrafts(id)
-    const latest = chapterDrafts[0]
-    if (latest) loadDraft(latest.id)
-    else {
-      selectedDraftId.value = ''
-      content.value = ''
-      savedContent.value = ''
-    }
-  } catch {
-    selectedDraftId.value = ''
-    content.value = ''
-    savedContent.value = ''
-  }
+  await resolveContent(id)
 }
+
 async function saveDraft() {
-  if (!selectedId.value || !selectedDraftId.value || !isDirty.value) return
+  if (!selectedId.value || !selectedDraftId.value || !isDirty.value || !selected.value) return
   busy.value = true
   try {
-    const draft = await store.updateDraft(selectedId.value, selectedDraftId.value, content.value)
-    savedContent.value = draft.content
-    message.value = `版本 ${draft.version} 已保存`
+    if (inheritedFrom.value) {
+      const parentDraft = drafts.value.find(item => item.id === selectedDraftId.value)
+      if (!parentDraft) return
+      const updated = replaceMarkdownSection(
+        parentDraft.content,
+        selected.value.title,
+        content.value,
+        selected.value.level,
+      )
+      if (!updated) {
+        message.value = `未能把本节写回「${inheritedFrom.value.chapterTitle}」草稿`
+        return
+      }
+      const draft = await store.updateDraft(
+        inheritedFrom.value.chapterId,
+        selectedDraftId.value,
+        updated,
+      )
+      const parent = store.chapters.find(item => item.id === inheritedFrom.value?.chapterId)
+      if (parent) applyInheritedDraft(parent, draft, selected.value)
+      message.value = `已写回「${inheritedFrom.value.chapterTitle}」版本 ${draft.version}`
+    } else {
+      const draft = await store.updateDraft(selectedId.value, selectedDraftId.value, content.value)
+      savedContent.value = draft.content
+      message.value = `版本 ${draft.version} 已保存`
+    }
   } catch (error) {
     message.value = error instanceof Error ? error.message : '保存失败'
   } finally {
@@ -77,7 +160,7 @@ async function generate() {
   try {
     const draft = await workflowApi.generateDraft(selectedId.value, mode.value, instruction.value)
     store.drafts[selectedId.value] = [draft, ...(store.drafts[selectedId.value] || [])]
-    loadDraft(draft.id)
+    applyOwnDraft(draft)
     message.value = `已生成第 ${draft.version} 版草稿`
   } catch (error) {
     message.value = error instanceof Error ? error.message : '生成失败'
@@ -89,8 +172,10 @@ async function summary() {
   if (!selectedId.value || !selectedDraftId.value) return
   busy.value = true
   try {
-    await store.generateSummary(selectedId.value)
-    message.value = '章节摘要已生成'
+    await store.generateSummary(inheritedFrom.value?.chapterId || selectedId.value)
+    message.value = inheritedFrom.value
+      ? `已根据「${inheritedFrom.value.chapterTitle}」草稿生成摘要`
+      : '章节摘要已生成'
   } catch (error) {
     message.value = error instanceof Error ? error.message : '摘要生成失败'
   } finally {
@@ -172,10 +257,16 @@ watch(() => route.params.chapterId, id => {
             </div>
           </div>
           <p
-            v-if="!selectedDraftId"
+            v-if="inheritedFrom"
+            class="border-b border-teal-200 bg-teal-50 px-5 py-3 text-sm text-teal-900"
+          >
+            本节内容从「{{ inheritedFrom.chapterTitle }}」草稿按标题匹配。保存会写回该上级草稿。
+          </p>
+          <p
+            v-else-if="!selectedDraftId"
             class="border-b border-amber-200 bg-amber-50 px-5 py-3 text-sm text-amber-800"
           >
-            请先生成草稿，再开始编辑。这样每次编辑都可以保存到草稿版本。
+            请先在一级标题生成草稿。生成后，子标题会自动匹配对应段落。
           </p>
           <textarea
             v-model="content"
@@ -213,7 +304,9 @@ watch(() => route.params.chapterId, id => {
           </div>
         </div>
         <div class="panel">
-          <div class="panel-heading">草稿版本</div>
+          <div class="panel-heading">
+            {{ inheritedFrom ? `「${inheritedFrom.chapterTitle}」草稿版本` : '草稿版本' }}
+          </div>
           <button
             v-for="draft in drafts"
             :key="draft.id"

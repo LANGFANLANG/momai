@@ -30,6 +30,7 @@ def generate_outline(project_id: str, payload: OutlineGenerateRequest, db: DbSes
 @router.get("", response_model=list[ChapterRead])
 def list_outline(project_id: str, db: DbSession):
     ProjectService.get_project_or_404(db, project_id)
+    GenerationService.sync_matched_child_draft_statuses(db, project_id)
     return list_chapters_in_hierarchy_order(db, project_id)
 
 

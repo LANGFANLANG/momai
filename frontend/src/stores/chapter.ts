@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { workflowApi } from '@/api/workflow'
-import type { Chapter, ChapterDraft, ChapterRelation, ChapterSummary, ConsistencyIssue } from '@/types/chapter'
+import type { Chapter, ChapterDraft, ChapterRelation, ChapterSummary, ConsistencyFixResult, ConsistencyIssue } from '@/types/chapter'
 
 export const useChapterStore = defineStore('chapters', () => {
   const chapters = ref<Chapter[]>([])
@@ -55,5 +55,20 @@ export const useChapterStore = defineStore('chapters', () => {
     return reviewIssues.value
   }
 
-  return { chapters, relations, drafts, summaries, reviewIssues, loading, loadChapters, loadRelations, loadDrafts, updateDraft, loadSummary, generateSummary, loadReviewIssues }
+  function applyFixedDrafts(draftsToApply: ChapterDraft[]) {
+    for (const draft of draftsToApply) {
+      const existing = drafts.value[draft.chapter_id] ?? []
+      drafts.value[draft.chapter_id] = [draft, ...existing.filter(item => item.id !== draft.id)]
+    }
+  }
+
+  async function fixIssue(projectId: string, issueId: string): Promise<ConsistencyFixResult> {
+    const result = await workflowApi.fixIssue(projectId, issueId)
+    const index = reviewIssues.value.findIndex(item => item.id === issueId)
+    if (index >= 0) reviewIssues.value.splice(index, 1, result.issue)
+    applyFixedDrafts(result.drafts)
+    return result
+  }
+
+  return { chapters, relations, drafts, summaries, reviewIssues, loading, loadChapters, loadRelations, loadDrafts, updateDraft, loadSummary, generateSummary, loadReviewIssues, fixIssue }
 })
