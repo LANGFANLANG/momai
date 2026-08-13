@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import html
 import os
 import secrets
 import string
@@ -22,6 +23,39 @@ _TOKEN_BYTES = 32
 _sessions: dict[str, str] = {}
 _CAPTCHA_TTL_SECONDS = 300
 _captcha_challenges: dict[str, tuple[str, datetime]] = {}
+
+
+def _captcha_image(code: str) -> str:
+    """Render the challenge as an image so the answer is never sent to the client."""
+    width, height = 144, 40
+    lines = []
+    for _ in range(5):
+        x1, y1 = secrets.randbelow(width), secrets.randbelow(height)
+        x2, y2 = secrets.randbelow(width), secrets.randbelow(height)
+        color = secrets.choice(("#0f766e", "#9f1239", "#57534e", "#a16207"))
+        lines.append(f'<path d="M{x1} {y1} L{x2} {y2}" stroke="{color}" stroke-width="1.2" opacity=".55"/>')
+    dots = "".join(
+        f'<circle cx="{secrets.randbelow(width)}" cy="{secrets.randbelow(height)}" r="{secrets.choice((1, 1, 2))}" fill="#78716c" opacity=".45"/>'
+        for _ in range(24)
+    )
+    chars = []
+    for index, char in enumerate(code):
+        x = 18 + index * 32 + secrets.randbelow(7) - 3
+        y = 28 + secrets.randbelow(7) - 3
+        rotation = secrets.randbelow(31) - 15
+        color = secrets.choice(("#292524", "#115e59", "#881337", "#854d0e"))
+        chars.append(
+            f'<text x="{x}" y="{y}" transform="rotate({rotation} {x} {y})" '
+            f'fill="{color}" font-family="Arial,sans-serif" font-size="24" font-weight="700">{html.escape(char)}</text>'
+        )
+    svg = (
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">'
+        '<defs><filter id="soft"><feGaussianBlur stdDeviation=".18"/></filter></defs>'
+        '<rect width="100%" height="100%" rx="3" fill="#f5f5f4"/>'
+        f'<g filter="url(#soft)">{"".join(lines)}{dots}{"".join(chars)}</g></svg>'
+    )
+    encoded = base64.b64encode(svg.encode("utf-8")).decode("ascii")
+    return f"data:image/svg+xml;base64,{encoded}"
 
 
 def _hash_password(password: str, salt: bytes | None = None) -> str:
@@ -72,7 +106,7 @@ class AuthService:
         captcha_id = secrets.token_urlsafe(16)
         expires_at = datetime.now(timezone.utc) + timedelta(seconds=_CAPTCHA_TTL_SECONDS)
         _captcha_challenges[captcha_id] = (code, expires_at)
-        return captcha_id, code
+        return captcha_id, _captcha_image(code)
 
     @staticmethod
     def verify_captcha(captcha_id: str, answer: str) -> None:

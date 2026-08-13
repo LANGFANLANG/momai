@@ -30,6 +30,7 @@ from app.export.formula import append_omath
 from app.export.docx_style import DocxStyle
 
 HEADING_RE = re.compile(r"^(#{1,6})\s*(.+?)\s*#*\s*$")
+NUMBERED_HEADING_RE = re.compile(r"^\s*(\d+(?:\.\d+){0,5})(?:\s+|[.．、])")
 UL_RE = re.compile(r"^[-*+]\s+(.+)$")
 OL_RE = re.compile(r"^\d+[.)、]\s+(.+)$")
 HR_RE = re.compile(r"^(-{3,}|\*{3,}|_{3,})$")
@@ -155,6 +156,13 @@ def _heading_size(style: DocxStyle, level: int) -> float:
     if level == 2:
         return style.heading2_size_pt
     return style.heading3_size_pt
+
+
+def _word_heading_level(markdown_level: int, text: str) -> int:
+    numbered = NUMBERED_HEADING_RE.match(_plain_text(text))
+    if numbered:
+        return min(numbered.group(1).count(".") + 1, 6)
+    return markdown_level
 
 
 def _clean_residual(text: str) -> str:
@@ -471,7 +479,9 @@ def _add_markdown(
             continue
         heading = HEADING_RE.match(stripped)
         if heading:
-            _add_heading(document, heading.group(2).strip(), len(heading.group(1)), style)
+            text = heading.group(2).strip()
+            level = _word_heading_level(len(heading.group(1)), text)
+            _add_heading(document, text, level, style)
             index += 1
             continue
         bullet = UL_RE.match(stripped)

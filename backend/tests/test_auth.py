@@ -6,6 +6,7 @@ from sqlalchemy.pool import StaticPool
 from app.db.base import Base
 from app.db.session import get_db
 from app.main import create_app
+from app.services.auth import _captcha_challenges
 
 
 def create_client() -> TestClient:
@@ -29,7 +30,9 @@ def captcha_payload(client: TestClient) -> dict[str, str]:
     captcha = client.get("/api/auth/captcha")
     assert captcha.status_code == 200
     body = captcha.json()
-    return {"captcha_id": body["id"], "captcha_answer": body["code"]}
+    assert "code" not in body
+    assert body["image"].startswith("data:image/svg+xml;base64,")
+    return {"captcha_id": body["id"], "captcha_answer": _captcha_challenges[body["id"]][0]}
 
 
 def test_default_admin_login_and_project_binding():

@@ -31,8 +31,8 @@ def login(payload: AuthCredentials, db: DbSession) -> AuthSession:
 
 @router.get("/captcha", response_model=CaptchaChallenge)
 def captcha() -> CaptchaChallenge:
-    captcha_id, code = AuthService.create_captcha()
-    return CaptchaChallenge(id=captcha_id, code=code)
+    captcha_id, image = AuthService.create_captcha()
+    return CaptchaChallenge(id=captcha_id, image=image)
 
 
 @router.get("/me", response_model=UserRead)

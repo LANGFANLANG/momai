@@ -125,3 +125,23 @@ def test_docx_display_formula_numbered_in_chinese(tmp_path):
         if len(table.columns) == 3 and table.cell(0, 2).text.strip().startswith("（")
     ]
     assert numbered == ["（一）", "（二）"]
+
+
+def test_docx_numbered_markdown_headings_map_to_word_heading_levels(tmp_path):
+    document = _build(
+        tmp_path,
+        (
+            "### 2.1 System environment\n\n"
+            "Body.\n\n"
+            "#### 2.3.1 Spark SQL\n\n"
+            "Body.\n"
+        ),
+    )
+    heading_styles = {
+        paragraph.text: paragraph.style.name
+        for paragraph in document.paragraphs
+        if paragraph.style.name.startswith("Heading")
+    }
+
+    assert heading_styles["2.1 System environment"] == "Heading 2"
+    assert heading_styles["2.3.1 Spark SQL"] == "Heading 3"

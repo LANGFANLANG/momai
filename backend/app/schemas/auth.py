@@ -22,4 +22,4 @@ class AuthSession(BaseModel):
 
 class CaptchaChallenge(BaseModel):
     id: str
-    code: str
+    image: str

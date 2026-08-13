@@ -17,5 +17,5 @@ export interface AuthCredentials {
 
 export interface CaptchaChallenge {
   id: string
-  code: string
+  image: string
 }
