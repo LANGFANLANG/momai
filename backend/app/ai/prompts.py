@@ -43,6 +43,7 @@ Project Brief：{project_brief}
 大纲偏好：{outline_preference}
 
 要求：为每个章节给出 purpose 和 suggested_word_count；输出 JSON，不要输出 Markdown。
+JSON 必须合法：对象和数组的项之间都要有逗号；字符串里不要用英文双引号，引用请用「」。
 
 输出结构：
 {{
@@ -98,10 +99,12 @@ Project Brief：{project_brief}
 当前章节：{current_chapter}
 当前章节关系：{current_relation}
 相关用户材料：{related_materials}
+可引用文献：{references}
 用户额外要求：{user_instruction}
 
 要求：只写当前章节；不得编造用户未提供的信息；缺失信息使用“[待补充：具体信息]”；输出 Markdown。
 表格用 Markdown 表格，上一行写中文题注且不要自编号，例如“表 用户基本信息”。独立公式用 $$...$$，行内公式用 $...$，不要自编号。
+引用文献时只能使用「可引用文献」中的条目，写成 [cite:文献id]；不要自己编号为 [1][2]。同一篇文献在全文只标注一次，首次使用时标注即可，后文不要重复插入同一个 [cite:文献id]。同一处引用多篇时写成 [cite:id1,id2]。不得编造未提供的参考文献。
 """
 
 CHAPTER_SUMMARY_PROMPT = """你是一个论文上下文压缩助手。
@@ -221,5 +224,5 @@ CONSISTENCY_FIX_CHAPTER_PROMPT = """你是一个论文和课程设计报告修�
 1. 输出修订后的完整 Markdown，不要输出 JSON，不要解释。
 2. 保留原有标题层级。
 3. 不得编造用户未提供的事实；缺失信息继续使用“[待补充：具体信息]”。
-4. 保留已有 Markdown 表格、表题注、$$公式$$ 和行内 $公式$。
+4. 保留已有 Markdown 表格、表题注、$$公式$$、行内 $公式$ 和 [cite:文献id] 引用标记。
 """

@@ -49,11 +49,21 @@ class TimestampMixin:
     )
 
 
+class User(TimestampMixin, Base):
+    __tablename__ = "users"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_string)
+    username: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    password_hash: Mapped[str] = mapped_column(String(255))
+
+    projects: Mapped[list["Project"]] = relationship(back_populates="user")
+
+
 class Project(TimestampMixin, Base):
     __tablename__ = "projects"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_string)
-    user_id: Mapped[str] = mapped_column(String(255), default="local-dev-user")
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), default="admin")
     type: Mapped[str] = mapped_column(Enum(*PROJECT_TYPES, name="project_type"))
     title: Mapped[str] = mapped_column(String(255))
     major: Mapped[str | None] = mapped_column(String(255))
@@ -89,6 +99,12 @@ class Project(TimestampMixin, Base):
     paper_abstract: Mapped["PaperAbstract | None"] = relationship(
         back_populates="project", cascade="all, delete-orphan", uselist=False
     )
+    references: Mapped[list["ProjectReference"]] = relationship(
+        back_populates="project",
+        cascade="all, delete-orphan",
+        order_by="ProjectReference.sort_order",
+    )
+    user: Mapped[User] = relationship(back_populates="projects")
 
 
 class ProjectContext(TimestampMixin, Base):
@@ -147,6 +163,21 @@ class PaperAbstract(TimestampMixin, Base):
     keywords_en: Mapped[list[str] | None] = mapped_column(JSON)
 
     project: Mapped[Project] = relationship(back_populates="paper_abstract")
+
+
+class ProjectReference(TimestampMixin, Base):
+    __tablename__ = "project_references"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_string)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"))
+    authors: Mapped[str | None] = mapped_column(String(512))
+    title: Mapped[str] = mapped_column(String(512))
+    source: Mapped[str | None] = mapped_column(String(512))
+    year: Mapped[str | None] = mapped_column(String(32))
+    extra: Mapped[str | None] = mapped_column(Text)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+
+    project: Mapped[Project] = relationship(back_populates="references")
 
 
 class Chapter(TimestampMixin, Base):

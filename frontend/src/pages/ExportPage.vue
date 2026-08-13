@@ -6,7 +6,8 @@ import { HttpError } from '@/api/http'
 import { useChapterStore } from '@/stores/chapter'
 import { workflowApi } from '@/api/workflow'
 import { projectsApi } from '@/api/projects'
-import type { DocxStyle, PaperAbstract } from '@/types/project'
+import type { DocxStyle, PaperAbstract, ProjectReference } from '@/types/project'
+import { applyCitationNumbers, isBibliographyChapter } from '@/utils/citations'
 
 const projectId = String(useRoute().params.projectId)
 const store = useChapterStore()
@@ -45,6 +46,7 @@ const abstractZh = ref('')
 const abstractEn = ref('')
 const keywordsZh = ref('')
 const keywordsEn = ref('')
+const references = ref<ProjectReference[]>([])
 
 function parseKeywords(raw: string, chinese: boolean) {
   return raw
@@ -91,15 +93,18 @@ const abstractPreview = computed(() => {
   return parts.join('\n\n')
 })
 
-const chapterPreview = computed(() =>
-  ordered.value
-    .map(chapter => {
-      const content = store.drafts[chapter.id]?.[0]?.content || ''
-      return content ? `# ${chapter.title}\n\n${content}` : ''
-    })
+const chapterPreview = computed(() => {
+  const chapters = ordered.value.filter(chapter => !isBibliographyChapter(chapter.title))
+  const raw = chapters.map(chapter => store.drafts[chapter.id]?.[0]?.content || '')
+  const { texts, bibliography } = applyCitationNumbers(raw, references.value)
+  const parts = chapters
+    .map((chapter, index) => (texts[index] ? `# ${chapter.title}\n\n${texts[index]}` : ''))
     .filter(Boolean)
-    .join('\n\n---\n\n'),
-)
+  if (bibliography.length) {
+    parts.push(`# 参考文献\n\n${bibliography.map(item => item.line).join('\n')}`)
+  }
+  return parts.join('\n\n---\n\n')
+})
 
 const preview = computed(() =>
   [abstractPreview.value, chapterPreview.value].filter(Boolean).join('\n\n---\n\n'),
@@ -159,6 +164,11 @@ async function load() {
     if (!(e instanceof HttpError && e.status === 404)) throw e
   }
   try {
+    references.value = await projectsApi.listReferences(projectId)
+  } catch {
+    references.value = []
+  }
+  try {
     const context = await projectsApi.getContext(projectId)
     const saved = context.writing_prefs?.export_docx as Partial<DocxStyle> | undefined
     style.value = { ...defaultStyle(), ...saved }
@@ -196,7 +206,7 @@ onMounted(() => {
   <section>
     <div class="mb-6 flex flex-wrap items-end justify-between gap-4">
       <div>
-        <p class="page-kicker">06 / EXPORT</p>
+        <p class="page-kicker">07 / EXPORT</p>
         <h2 class="page-heading">导出文稿</h2>
         <p class="page-copy mt-2">正文完成后可生成中英文摘要，再按论文常用标题与正文规范导出。</p>
       </div>

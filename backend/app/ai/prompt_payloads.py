@@ -8,6 +8,7 @@ from app.db.models import (
     Material,
     ProjectBrief,
     ProjectContext,
+    ProjectReference,
 )
 
 
@@ -117,6 +118,24 @@ def materials_payload(materials: list[Material]) -> str:
         [
             {"type": item.type, "title": item.title, "content": item.content}
             for item in materials
+        ]
+    )
+
+
+def references_payload(references: list[ProjectReference]) -> str:
+    if not references:
+        return "用户尚未提供参考文献。不要编造文献，不要写 [1] 或虚构作者、年份、期刊。"
+    return as_prompt_json(
+        [
+            {
+                "cite": f"[cite:{item.id}]",
+                "authors": item.authors,
+                "title": item.title,
+                "source": item.source,
+                "year": item.year,
+                "extra": item.extra,
+            }
+            for item in references
         ]
     )
 

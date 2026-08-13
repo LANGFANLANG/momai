@@ -75,7 +75,7 @@ onMounted(load)
   <section>
     <div class="mb-6 flex flex-wrap items-end justify-between gap-4">
       <div>
-        <p class="page-kicker">05 / REVIEW</p>
+        <p class="page-kicker">06 / REVIEW</p>
         <h2 class="page-heading">一致性校验</h2>
         <p class="page-copy mt-2">检查 Brief、章节结构和草稿之间的矛盾与缺口。</p>
       </div>

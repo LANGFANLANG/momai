@@ -7,12 +7,12 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Cm, Pt
 
-from app.db.models import Chapter, ChapterDraft, PaperAbstract, Project
+from app.db.models import Chapter, ChapterDraft, PaperAbstract, Project, ProjectReference
+from app.export.citations import format_reference_entry, is_bibliography_chapter, numbered_chapter_bodies
 from app.export.common import (
     abstract_has_content,
     chapters_by_id,
     covered_by_ancestor_draft,
-    draft_body,
     join_keywords,
 )
 from app.export.academic import (
@@ -529,6 +529,7 @@ def build_docx(
     drafts: dict[str, ChapterDraft],
     style: DocxStyle | None = None,
     paper_abstract: PaperAbstract | None = None,
+    references: list[ProjectReference] | None = None,
 ) -> None:
     style = style or DocxStyle()
     document = Document()
@@ -537,15 +538,20 @@ def build_docx(
     _add_title(document, project.title, style)
     _add_abstracts(document, paper_abstract, style)
     by_id = chapters_by_id(chapters)
+    bodies, bibliography = numbered_chapter_bodies(chapters, drafts, references)
     counters = AcademicCounters()
     for chapter in chapters:
-        if covered_by_ancestor_draft(chapter, by_id, drafts):
+        if is_bibliography_chapter(chapter.title) or covered_by_ancestor_draft(chapter, by_id, drafts):
             continue
         if chapter.level <= 1:
             counters.chapter_no += 1
             counters.table_no = 0
         _add_heading(document, chapter.title, max(chapter.level, 1), style)
-        draft = drafts.get(chapter.id)
-        if draft:
-            _add_markdown(document, draft_body(chapter, draft), style, counters)
+        content = bodies.get(chapter.id)
+        if content:
+            _add_markdown(document, content, style, counters)
+    if bibliography:
+        _add_heading(document, "参考文献", 1, style)
+        for number, ref in bibliography:
+            _add_body(document, format_reference_entry(ref, number), style, indent=False)
     document.save(output_path)

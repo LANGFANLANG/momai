@@ -8,9 +8,13 @@ import ChapterRelationsPage from '@/pages/ChapterRelationsPage.vue'
 import ChapterWritingPage from '@/pages/ChapterWritingPage.vue'
 import ConsistencyReviewPage from '@/pages/ConsistencyReviewPage.vue'
 import ExportPage from '@/pages/ExportPage.vue'
+import ReferencesPage from '@/pages/ReferencesPage.vue'
+import AuthPage from '@/pages/AuthPage.vue'
+import { useAuthStore } from '@/stores/auth'
 
 const routes: RouteRecordRaw[] = [
   { path: '/', redirect: '/projects' },
+  { path: '/login', component: AuthPage, meta: { public: true } },
   { path: '/projects', component: ProjectListPage },
   { path: '/projects/new', component: ProjectCreatePage },
   { path: '/projects/:projectId', component: ProjectLayout, children: [
@@ -18,10 +22,19 @@ const routes: RouteRecordRaw[] = [
     { path: 'brief', component: ProjectBriefPage },
     { path: 'outline', component: OutlinePage },
     { path: 'relations', component: ChapterRelationsPage },
+    { path: 'references', component: ReferencesPage },
     { path: 'chapters', component: ChapterWritingPage },
     { path: 'chapters/:chapterId', component: ChapterWritingPage },
     { path: 'review', component: ConsistencyReviewPage },
     { path: 'export', component: ExportPage },
   ] },
 ]
-export default createRouter({ history: createWebHistory(), routes })
+const router = createRouter({ history: createWebHistory(), routes })
+
+router.beforeEach(to => {
+  const auth = useAuthStore()
+  if (!to.meta.public && !auth.token) return '/login'
+  if (to.path === '/login' && auth.token) return '/projects'
+})
+
+export default router

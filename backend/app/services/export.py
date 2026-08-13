@@ -64,7 +64,13 @@ class ExportService:
         db.flush()
         output_path = cls._output_path(project.title, record.id, ".md")
         output_path.write_text(
-            build_markdown(project, chapters, drafts, project.paper_abstract),
+            build_markdown(
+                project,
+                chapters,
+                drafts,
+                project.paper_abstract,
+                list(project.references),
+            ),
             encoding="utf-8",
         )
         record.file_url = str(output_path)
@@ -88,6 +94,7 @@ class ExportService:
             drafts,
             resolve_docx_style(project, style_override),
             project.paper_abstract,
+            list(project.references),
         )
         record.file_url = str(output_path)
         project.status = "export_ready"

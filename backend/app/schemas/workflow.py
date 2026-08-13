@@ -194,6 +194,36 @@ class PaperAbstractUpdate(BaseModel):
     keywords_en: list[str] | None = None
 
 
+class ProjectReferenceRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    project_id: str
+    authors: str | None
+    title: str
+    source: str | None
+    year: str | None
+    extra: str | None
+    sort_order: int
+
+
+class ProjectReferenceCreate(BaseModel):
+    authors: str | None = None
+    title: str
+    source: str | None = None
+    year: str | None = None
+    extra: str | None = None
+
+
+class ProjectReferenceUpdate(BaseModel):
+    authors: str | None = None
+    title: str | None = None
+    source: str | None = None
+    year: str | None = None
+    extra: str | None = None
+    sort_order: int | None = None
+
+
 class ExportRecordRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

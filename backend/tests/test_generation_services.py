@@ -17,6 +17,7 @@ from app.services.generation import (
     ChapterDraftRequired,
     ConsistencyFixConflict,
     GenerationService,
+    OutlineGenerationFailed,
     OutlineRegenerationConflict,
 )
 
@@ -187,6 +188,51 @@ def test_structured_llm_output_is_persisted(db_session):
     assert draft.content == "# LLM Chapter\n\nLLM draft"
     assert summary.summary == "LLM summary"
     assert issues[0].type == "LLM issue"
+
+
+def test_generate_outline_accepts_messy_llm_types(db_session):
+    project = Project(type="thesis", title="Messy Outline", language="zh")
+    db_session.add(project)
+    db_session.commit()
+    client = RecordingJsonClient(
+        {
+            "outline": [
+                {
+                    "title": "绪论",
+                    "level": "1",
+                    "suggested_word_count": "约1200字",
+                    "purpose": ["介绍背景", "提出问题"],
+                    "children": None,
+                },
+                {
+                    "title": "系统设计",
+                    "level": 1,
+                    "order": 2,
+                    "suggested_word_count": 1500,
+                },
+            ]
+        }
+    )
+
+    chapters = GenerationService.generate_outline(db_session, project.id, client=client)
+
+    assert [chapter.title for chapter in chapters] == ["绪论", "系统设计"]
+    assert chapters[0].level == 1
+    assert chapters[0].order == 1
+    assert chapters[0].suggested_word_count == 1200
+    assert chapters[0].purpose == "介绍背景；提出问题"
+    assert chapters[1].order == 2
+
+
+def test_generate_outline_raises_when_llm_payload_has_no_chapters(db_session):
+    project = Project(type="thesis", title="Bad Outline", language="zh")
+    db_session.add(project)
+    db_session.commit()
+
+    with pytest.raises(OutlineGenerationFailed):
+        GenerationService.generate_outline(
+            db_session, project.id, client=RecordingJsonClient({"nope": True})
+        )
 
 
 @pytest.mark.parametrize("downstream", ["relation", "draft", "summary"])

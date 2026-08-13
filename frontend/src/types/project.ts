@@ -104,3 +104,19 @@ export interface PaperAbstract {
 
 export type PaperAbstractUpdate = Partial<Omit<PaperAbstract, 'id' | 'project_id'>>
 
+export interface ProjectReference {
+  id: string
+  project_id: string
+  authors: string | null
+  title: string
+  source: string | null
+  year: string | null
+  extra: string | null
+  sort_order: number
+}
+
+export type ProjectReferenceCreate = Pick<ProjectReference, 'title'> &
+  Partial<Pick<ProjectReference, 'authors' | 'source' | 'year' | 'extra'>>
+
+export type ProjectReferenceUpdate = Partial<Omit<ProjectReference, 'id' | 'project_id'>>
+

@@ -1,4 +1,9 @@
 export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
+let authToken = ''
+
+export function setAuthToken(token: string) {
+  authToken = token
+}
 
 export class HttpError extends Error {
   constructor(
@@ -15,6 +20,7 @@ export async function request<T>(path: string, init: RequestInit = {}): Promise<
     ...init,
     headers: {
       ...(init.body ? { 'Content-Type': 'application/json' } : {}),
+      ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
       ...init.headers,
     },
   })

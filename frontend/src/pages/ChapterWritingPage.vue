@@ -4,7 +4,9 @@ import { useRoute, useRouter } from 'vue-router'
 import AppButton from '@/components/ui/AppButton.vue'
 import { useChapterStore } from '@/stores/chapter'
 import { workflowApi } from '@/api/workflow'
+import { projectsApi } from '@/api/projects'
 import type { Chapter, ChapterDraft, DraftMode } from '@/types/chapter'
+import type { ProjectReference } from '@/types/project'
 import { extractMarkdownSection, replaceMarkdownSection } from '@/utils/markdownSections'
 
 const route = useRoute()
@@ -18,6 +20,8 @@ const mode = ref<DraftMode>('generate')
 const instruction = ref('')
 const content = ref('')
 const savedContent = ref('')
+const references = ref<ProjectReference[]>([])
+const editor = ref<HTMLTextAreaElement | null>(null)
 const busy = ref(false)
 const message = ref('')
 const selected = computed(() => store.chapters.find(chapter => chapter.id === selectedId.value))
@@ -182,8 +186,30 @@ async function summary() {
     busy.value = false
   }
 }
+function insertCite(item: ProjectReference) {
+  const marker = `[cite:${item.id}]`
+  const el = editor.value
+  if (!el || el.disabled) {
+    message.value = '请先生成草稿，再点击文献插入引用'
+    return
+  }
+  const start = el.selectionStart
+  const end = el.selectionEnd
+  content.value = `${content.value.slice(0, start)}${marker}${content.value.slice(end)}`
+  requestAnimationFrame(() => {
+    const pos = start + marker.length
+    el.focus()
+    el.setSelectionRange(pos, pos)
+  })
+}
+
 onMounted(async () => {
   await store.loadChapters(projectId)
+  try {
+    references.value = await projectsApi.listReferences(projectId)
+  } catch {
+    references.value = []
+  }
   if (selectedId.value && store.chapters.some(chapter => chapter.id === selectedId.value)) {
     await choose(selectedId.value)
   } else if (store.chapters[0]) {
@@ -199,9 +225,11 @@ watch(() => route.params.chapterId, id => {
   <section>
     <div class="mb-6 flex flex-wrap items-end justify-between gap-4">
       <div>
-        <p class="page-kicker">04 / WRITING</p>
+        <p class="page-kicker">05 / WRITING</p>
         <h2 class="page-heading">章节写作</h2>
-        <p class="page-copy mt-2">基于大纲与章节关系生成草稿，并保留版本记录。</p>
+        <p class="page-copy mt-2">
+          基于大纲与章节关系生成草稿。模型会引用你填写的文献；导出时按全文首次出现编为 [1]、[2]。
+        </p>
       </div>
       <AppButton
         variant="secondary"
@@ -269,6 +297,7 @@ watch(() => route.params.chapterId, id => {
             请先在一级标题生成草稿。生成后，子标题会自动匹配对应段落。
           </p>
           <textarea
+            ref="editor"
             v-model="content"
             :disabled="!selectedDraftId"
             class="block min-h-[580px] w-full border-0 bg-white p-5 font-mono text-sm leading-7 outline-none focus:ring-1 focus:ring-inset focus:ring-teal-700 disabled:cursor-not-allowed disabled:bg-stone-100 disabled:text-stone-400"
@@ -302,6 +331,26 @@ watch(() => route.params.chapterId, id => {
             </label>
             <AppButton :loading="busy" @click="generate">生成草稿</AppButton>
           </div>
+        </div>
+        <div class="panel">
+          <div class="panel-heading">可引用文献</div>
+          <ul v-if="references.length" class="max-h-64 overflow-auto text-xs">
+            <li v-for="item in references" :key="item.id" class="border-b border-stone-100">
+              <button
+                type="button"
+                class="w-full px-4 py-3 text-left text-stone-600 hover:bg-stone-50"
+                :title="`插入 [cite:${item.id}]`"
+                @click="insertCite(item)"
+              >
+                <span class="font-medium text-stone-800">{{ item.authors || '佚名' }}</span>
+                {{ item.year ? `（${item.year}）` : '' }}
+                {{ item.title }}
+              </button>
+            </li>
+          </ul>
+          <p v-else class="p-4 text-xs text-stone-500">
+            尚未填写文献。请先到「参考文献」页添加，再生成正文。
+          </p>
         </div>
         <div class="panel">
           <div class="panel-heading">

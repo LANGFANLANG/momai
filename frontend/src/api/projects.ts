@@ -6,6 +6,9 @@ import type {
   ProjectContext,
   ProjectContextPayload,
   ProjectCreate,
+  ProjectReference,
+  ProjectReferenceCreate,
+  ProjectReferenceUpdate,
   ProjectUpdate,
 } from '@/types/project'
 
@@ -27,4 +30,15 @@ export const projectsApi = {
   getBrief: (projectId: string) => request<ProjectBrief>(`/api/projects/${projectId}/brief`),
   updateBrief: (projectId: string, payload: ProjectBriefUpdate) =>
     request<ProjectBrief>(`/api/projects/${projectId}/brief`, json('PATCH', payload)),
+  listReferences: (projectId: string) =>
+    request<ProjectReference[]>(`/api/projects/${projectId}/references`),
+  createReference: (projectId: string, payload: ProjectReferenceCreate) =>
+    request<ProjectReference>(`/api/projects/${projectId}/references`, json('POST', payload)),
+  updateReference: (projectId: string, referenceId: string, payload: ProjectReferenceUpdate) =>
+    request<ProjectReference>(
+      `/api/projects/${projectId}/references/${referenceId}`,
+      json('PATCH', payload),
+    ),
+  deleteReference: (projectId: string, referenceId: string) =>
+    request<void>(`/api/projects/${projectId}/references/${referenceId}`, { method: 'DELETE' }),
 }

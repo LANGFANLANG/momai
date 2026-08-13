@@ -254,3 +254,38 @@ def test_paper_abstract_api_generate_get_and_patch(monkeypatch):
     assert content.index("# 摘要") < content.index("# Abstract")
     assert "手工修改后的中文摘要。" in content
     assert "关键词：Hive；电商" in content
+
+
+def test_reference_api_crud(monkeypatch):
+    monkeypatch.setattr(generation, "get_llm_client", MockLlmClient)
+    client, _ = create_client()
+    project_id = client.post(
+        "/api/projects",
+        json={"type": "thesis", "title": "Cite Hive", "language": "zh"},
+    ).json()["id"]
+
+    created = client.post(
+        f"/api/projects/{project_id}/references",
+        json={
+            "authors": "乙",
+            "title": "Hive 实践",
+            "source": "软件学报",
+            "year": "2021",
+        },
+    )
+    assert created.status_code == 201
+    ref_id = created.json()["id"]
+    listed = client.get(f"/api/projects/{project_id}/references")
+    assert listed.status_code == 200
+    assert listed.json()[0]["title"] == "Hive 实践"
+
+    updated = client.patch(
+        f"/api/projects/{project_id}/references/{ref_id}",
+        json={"year": "2022"},
+    )
+    assert updated.status_code == 200
+    assert updated.json()["year"] == "2022"
+
+    deleted = client.delete(f"/api/projects/{project_id}/references/{ref_id}")
+    assert deleted.status_code == 204
+    assert client.get(f"/api/projects/{project_id}/references").json() == []

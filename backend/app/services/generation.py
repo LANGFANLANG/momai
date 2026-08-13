@@ -1,9 +1,11 @@
 from pydantic import BaseModel, ValidationError
 import httpx
+import logging
 from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
 from app.ai.llm import LlmClient, MockLlmClient, get_llm_client
+from app.ai.json_util import LlmError
 from app.ai.graphs import (
     build_brief_workflow,
     build_chapter_draft_workflow,
@@ -22,6 +24,7 @@ from app.ai.prompt_payloads import (
     current_relation_payload,
     materials_payload,
     outline_payload,
+    references_payload,
     summaries_payload,
 )
 from app.ai.prompts import (
@@ -53,12 +56,19 @@ from app.schemas.chapter import (
     ChapterSummaryGeneration,
 )
 from app.schemas.review import ChapterContentUpdate, ConsistencyFixGeneration, ConsistencyReviewGeneration
+from app.export.citations import is_bibliography_chapter
 from app.services.chapters import list_chapters_in_hierarchy_order
 from app.services.markdown_sections import extract_markdown_section, titles_match
 from app.services.projects import ProjectService
 
+logger = logging.getLogger(__name__)
+
 
 class OutlineRegenerationConflict(Exception):
+    pass
+
+
+class OutlineGenerationFailed(Exception):
     pass
 
 
@@ -295,13 +305,20 @@ class GenerationService:
         )
         llm = cls._client(client)
         def generate(state):
-            result = (
-                cls._mock_outline(project.id, project.target_word_count)
-                if isinstance(llm, MockLlmClient)
-                else cls._validate_generation(
-                    llm.complete_json(state["prompt"]), OutlineGeneration
-                )
-            )
+            try:
+                if isinstance(llm, MockLlmClient):
+                    result = cls._mock_outline(project.id, project.target_word_count)
+                else:
+                    result = cls._validate_generation(
+                        llm.complete_json(state["prompt"]), OutlineGeneration
+                    )
+                    if not result.chapters:
+                        raise OutlineGenerationFailed("模型没有返回任何章节，请再试一次。")
+            except OutlineGenerationFailed:
+                raise
+            except (LlmError, ValidationError, httpx.HTTPError, TypeError, KeyError) as error:
+                logger.exception("Outline generation parse failed")
+                raise OutlineGenerationFailed("模型返回的大纲无法解析，请再试一次。") from error
             return {**state, "result": result}
 
         output = build_outline_workflow(generate).invoke({"prompt": prompt})["result"]
@@ -433,6 +450,26 @@ class GenerationService:
         if chapter is None:
             raise ValueError("Chapter not found")
         project = chapter.project
+        if is_bibliography_chapter(chapter.title):
+            content = (
+                "参考文献将在导出 Word / Markdown 时，"
+                "按全文中首次引用的顺序自动编号为 [1]、[2]、[3]。"
+            )
+            version = db.scalar(
+                select(func.coalesce(func.max(ChapterDraft.version), 0)).where(
+                    ChapterDraft.chapter_id == chapter.id
+                )
+            ) + 1
+            draft = ChapterDraft(
+                chapter_id=chapter.id,
+                version=version,
+                content=f"# {chapter.title}\n\n{content}",
+                prompt_snapshot={"placeholder": True},
+                generation_mode=mode,
+            )
+            chapter.status = "drafted"
+            project.status = "drafting_chapters"
+            return cls._commit_and_refresh(db, draft)
         prior_summaries = list(db.scalars(select(ChapterSummary).join(Chapter).where(Chapter.project_id == project.id, Chapter.order < chapter.order)))
         prompt = CHAPTER_DRAFT_PROMPT.format(
             project_type=project.type,
@@ -443,6 +480,7 @@ class GenerationService:
             current_chapter=current_chapter_payload(chapter),
             current_relation=current_relation_payload(chapter.relation),
             related_materials=materials_payload(project.materials),
+            references=references_payload(list(project.references)),
             user_instruction=user_instruction or "",
         )
         llm = cls._client(client)

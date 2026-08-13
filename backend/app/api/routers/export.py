@@ -6,23 +6,29 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
+from app.api.deps import current_user
 from app.db.models import ExportRecord
 from app.core.config import get_settings
 from app.db.session import get_db
 from app.schemas.workflow import ExportRecordRead
 from app.services.export import ExportService, download_filename
+from app.services.projects import ProjectService
+from app.db.models import User
 
 router = APIRouter(tags=["export"])
 DbSession = Annotated[Session, Depends(get_db)]
+CurrentUser = Annotated[User, Depends(current_user)]
 
 
 @router.post("/api/projects/{project_id}/export/markdown", response_model=ExportRecordRead)
-def export_markdown(project_id: str, db: DbSession):
+def export_markdown(project_id: str, db: DbSession, user: CurrentUser):
+    ProjectService.get_project_or_404(db, project_id, user)
     return ExportService.export_markdown(db, project_id)
 
 
 @router.post("/api/projects/{project_id}/export/docx", response_model=ExportRecordRead)
-async def export_docx(project_id: str, request: Request, db: DbSession):
+async def export_docx(project_id: str, request: Request, db: DbSession, user: CurrentUser):
+    ProjectService.get_project_or_404(db, project_id, user)
     override = None
     raw = await request.body()
     if raw:
@@ -36,10 +42,11 @@ async def export_docx(project_id: str, request: Request, db: DbSession):
 
 
 @router.get("/api/exports/{export_id}/download")
-def download_export(export_id: str, db: DbSession) -> FileResponse:
+def download_export(export_id: str, db: DbSession, user: CurrentUser) -> FileResponse:
     record = db.get(ExportRecord, export_id)
     if record is None:
         raise HTTPException(status_code=404, detail="Export not found")
+    ProjectService.get_project_or_404(db, record.project_id, user)
     export_dir = Path(get_settings().export_dir).resolve()
     file_path = Path(record.file_url).resolve()
     if not file_path.is_relative_to(export_dir):

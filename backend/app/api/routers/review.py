@@ -4,7 +4,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import ConsistencyIssue
+from app.api.deps import current_user
+from app.db.models import ConsistencyIssue, User
 from app.db.session import get_db
 from app.schemas.workflow import ConsistencyFixRead, ConsistencyIssueRead, ConsistencyIssueUpdate
 from app.services.generation import ConsistencyFixConflict, ConsistencyFixFailed, GenerationService
@@ -12,21 +13,24 @@ from app.services.projects import ProjectService
 
 router = APIRouter(prefix="/api/projects/{project_id}/review", tags=["review"])
 DbSession = Annotated[Session, Depends(get_db)]
+CurrentUser = Annotated[User, Depends(current_user)]
 
 
 @router.post("/generate", response_model=list[ConsistencyIssueRead])
-def generate_review(project_id: str, db: DbSession):
+def generate_review(project_id: str, db: DbSession, user: CurrentUser):
+    ProjectService.get_project_or_404(db, project_id, user)
     return GenerationService.review_consistency(db, project_id)
 
 
 @router.get("", response_model=list[ConsistencyIssueRead])
-def list_issues(project_id: str, db: DbSession):
-    ProjectService.get_project_or_404(db, project_id)
+def list_issues(project_id: str, db: DbSession, user: CurrentUser):
+    ProjectService.get_project_or_404(db, project_id, user)
     return list(db.scalars(select(ConsistencyIssue).where(ConsistencyIssue.project_id == project_id).order_by(ConsistencyIssue.created_at.desc())))
 
 
 @router.post("/{issue_id}/fix", response_model=ConsistencyFixRead)
-def fix_issue(project_id: str, issue_id: str, db: DbSession):
+def fix_issue(project_id: str, issue_id: str, db: DbSession, user: CurrentUser):
+    ProjectService.get_project_or_404(db, project_id, user)
     try:
         issue, drafts, fix_summary = GenerationService.fix_consistency_issue(
             db, project_id, issue_id
@@ -40,7 +44,8 @@ def fix_issue(project_id: str, issue_id: str, db: DbSession):
 
 
 @router.patch("/{issue_id}", response_model=ConsistencyIssueRead)
-def update_issue(project_id: str, issue_id: str, payload: ConsistencyIssueUpdate, db: DbSession):
+def update_issue(project_id: str, issue_id: str, payload: ConsistencyIssueUpdate, db: DbSession, user: CurrentUser):
+    ProjectService.get_project_or_404(db, project_id, user)
     issue = db.get(ConsistencyIssue, issue_id)
     if issue is None or issue.project_id != project_id:
         raise HTTPException(status_code=404, detail="Consistency issue not found")
