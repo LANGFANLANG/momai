@@ -15,6 +15,18 @@ from app.export.common import (
     draft_body,
     join_keywords,
 )
+from app.export.academic import (
+    AcademicCounters,
+    caption_title,
+    collect_table_rows,
+    is_table_caption,
+    is_table_row,
+    next_formula_label,
+    next_nonempty,
+    next_table_caption,
+    strip_formula_tag,
+)
+from app.export.formula import append_omath
 from app.export.docx_style import DocxStyle
 
 HEADING_RE = re.compile(r"^(#{1,6})\s*(.+?)\s*#*\s*$")
@@ -22,6 +34,7 @@ UL_RE = re.compile(r"^[-*+]\s+(.+)$")
 OL_RE = re.compile(r"^\d+[.)、]\s+(.+)$")
 HR_RE = re.compile(r"^(-{3,}|\*{3,}|_{3,})$")
 INLINE_RE = re.compile(
+    r"(?<!\$)\$([^$\n]+)\$(?!\$)|"
     r"!\[[^\]]*\]\([^)]*\)|"
     r"\[([^\]]+)\]\([^)]*\)|"
     r"\*\*(.+?)\*\*|"
@@ -158,19 +171,21 @@ def _inline_chunks(text: str):
     pos = 0
     for match in INLINE_RE.finditer(text):
         if match.start() > pos:
-            yield _clean_residual(text[pos : match.start()]), False
-        if match.group(0).startswith("!["):
+            yield _clean_residual(text[pos : match.start()]), "plain"
+        if match.group(0).startswith("$"):
+            yield match.group(1), "math"
+        elif match.group(0).startswith("!["):
             alt = re.match(r"!\[([^\]]*)\]", match.group(0))
-            yield (alt.group(1) if alt else ""), False
-        elif match.group(1):
-            yield match.group(1), False
-        elif match.group(2) or match.group(3):
-            yield match.group(2) or match.group(3), True
+            yield (alt.group(1) if alt else ""), "plain"
+        elif match.group(2):
+            yield match.group(2), "plain"
+        elif match.group(3) or match.group(4):
+            yield match.group(3) or match.group(4), "bold"
         else:
-            yield match.group(4) or match.group(5) or match.group(6) or "", False
+            yield match.group(5) or match.group(6) or match.group(7) or "", "plain"
         pos = match.end()
     if pos < len(text) or pos == 0:
-        yield _clean_residual(text[pos:]), False
+        yield _clean_residual(text[pos:]), "plain"
 
 
 def _plain_text(text: str) -> str:
@@ -179,11 +194,15 @@ def _plain_text(text: str) -> str:
 
 def _add_inline_runs(paragraph, text: str, ascii_font: str, east_asia: str, size_pt: float, *, base_bold: bool) -> None:
     emitted = False
-    for chunk, make_bold in _inline_chunks(text):
+    for chunk, kind in _inline_chunks(text):
+        if kind == "math":
+            append_omath(paragraph, chunk)
+            emitted = True
+            continue
         if not chunk:
             continue
         run = paragraph.add_run(chunk)
-        _set_run_font(run, ascii_font, east_asia, size_pt, base_bold or make_bold)
+        _set_run_font(run, ascii_font, east_asia, size_pt, base_bold or kind == "bold")
         emitted = True
     if not emitted:
         run = paragraph.add_run("")
@@ -236,41 +255,237 @@ def _add_body(document: Document, text: str, style: DocxStyle, *, indent: bool =
     )
 
 
-def _add_markdown(document: Document, markdown: str, style: DocxStyle) -> None:
+def _nil_border(edge: str, sz: int = 0):
+    element = OxmlElement(f"w:{edge}")
+    if sz:
+        element.set(qn("w:val"), "single")
+        element.set(qn("w:sz"), str(sz))
+        element.set(qn("w:space"), "0")
+        element.set(qn("w:color"), "000000")
+    else:
+        element.set(qn("w:val"), "nil")
+        element.set(qn("w:sz"), "0")
+        element.set(qn("w:space"), "0")
+        element.set(qn("w:color"), "auto")
+    return element
+
+
+def _set_cell_borders(cell, top: int = 0, bottom: int = 0) -> None:
+    tc_pr = cell._tc.get_or_add_tcPr()
+    existing = tc_pr.find(qn("w:tcBorders"))
+    if existing is not None:
+        tc_pr.remove(existing)
+    borders = OxmlElement("w:tcBorders")
+    borders.append(_nil_border("top", top))
+    borders.append(_nil_border("left", 0))
+    borders.append(_nil_border("bottom", bottom))
+    borders.append(_nil_border("right", 0))
+    tc_pr.append(borders)
+
+
+def _set_tbl_width_pct(table, pct: int = 5000) -> None:
+    tbl_pr = table._tbl.tblPr
+    tbl_w = tbl_pr.find(qn("w:tblW"))
+    if tbl_w is None:
+        tbl_w = OxmlElement("w:tblW")
+        tbl_pr.append(tbl_w)
+    tbl_w.set(qn("w:w"), str(pct))
+    tbl_w.set(qn("w:type"), "pct")
+    existing_jc = tbl_pr.find(qn("w:jc"))
+    if existing_jc is not None:
+        tbl_pr.remove(existing_jc)
+    jc = OxmlElement("w:jc")
+    jc.set(qn("w:val"), "center")
+    tbl_pr.append(jc)
+    existing_borders = tbl_pr.find(qn("w:tblBorders"))
+    if existing_borders is not None:
+        tbl_pr.remove(existing_borders)
+    borders = OxmlElement("w:tblBorders")
+    for edge in ("top", "left", "bottom", "right", "insideH", "insideV"):
+        borders.append(_nil_border(edge, 0))
+    tbl_pr.append(borders)
+
+
+def _set_cell_width_pct(cell, pct: int) -> None:
+    tc_pr = cell._tc.get_or_add_tcPr()
+    tc_w = tc_pr.find(qn("w:tcW"))
+    if tc_w is None:
+        tc_w = OxmlElement("w:tcW")
+        tc_pr.append(tc_w)
+    tc_w.set(qn("w:w"), str(pct))
+    tc_w.set(qn("w:type"), "pct")
+
+
+def _fill_cell(cell, text: str, style: DocxStyle, *, bold: bool, size_pt: float) -> None:
+    cell.text = ""
+    paragraph = cell.paragraphs[0]
+    paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    _apply_paragraph_spacing(paragraph, style, indent_pt=0)
+    _add_inline_runs(
+        paragraph,
+        text,
+        style.body_ascii,
+        style.body_east_asia,
+        size_pt,
+        base_bold=bold,
+    )
+
+
+def _add_table_caption(document: Document, caption: str, style: DocxStyle) -> None:
+    paragraph = document.add_paragraph()
+    paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    _apply_paragraph_spacing(paragraph, style, indent_pt=0)
+    _add_inline_runs(
+        paragraph,
+        caption,
+        style.heading_ascii,
+        style.heading_east_asia,
+        10.5,
+        base_bold=False,
+    )
+
+
+def _add_three_line_table(
+    document: Document,
+    rows: list[list[str]],
+    title: str,
+    style: DocxStyle,
+    counters: AcademicCounters,
+) -> None:
+    if not rows:
+        return
+    _add_table_caption(document, next_table_caption(counters, title), style)
+    cols = max(len(row) for row in rows)
+    table = document.add_table(rows=len(rows), cols=cols)
+    table.autofit = True
+    _set_tbl_width_pct(table)
+    size_pt = min(style.body_size_pt, 10.5)
+    last = len(rows) - 1
+    for r_idx, row in enumerate(rows):
+        for c_idx in range(cols):
+            cell = table.cell(r_idx, c_idx)
+            value = row[c_idx] if c_idx < len(row) else ""
+            top = 12 if r_idx == 0 else 0
+            bottom = 0
+            if r_idx == 0:
+                bottom = 6 if last > 0 else 12
+            if r_idx == last:
+                bottom = 12
+            _set_cell_borders(cell, top=top, bottom=bottom)
+            _fill_cell(cell, _plain_text(value), style, bold=r_idx == 0, size_pt=size_pt)
+
+
+def _add_display_formula(
+    document: Document,
+    latex: str,
+    style: DocxStyle,
+    counters: AcademicCounters,
+) -> None:
+    latex = strip_formula_tag(latex)
+    if not latex:
+        return
+    label = next_formula_label(counters)
+    table = document.add_table(rows=1, cols=3)
+    table.autofit = True
+    _set_tbl_width_pct(table)
+    widths = (750, 3500, 750)
+    alignments = (
+        WD_ALIGN_PARAGRAPH.LEFT,
+        WD_ALIGN_PARAGRAPH.CENTER,
+        WD_ALIGN_PARAGRAPH.RIGHT,
+    )
+    for index, cell in enumerate(table.rows[0].cells):
+        _set_cell_borders(cell)
+        _set_cell_width_pct(cell, widths[index])
+        cell.text = ""
+        paragraph = cell.paragraphs[0]
+        paragraph.alignment = alignments[index]
+        _apply_paragraph_spacing(paragraph, style, indent_pt=0)
+        if index == 1:
+            append_omath(paragraph, latex)
+        elif index == 2:
+            run = paragraph.add_run(label)
+            _set_run_font(run, style.body_ascii, style.body_east_asia, style.body_size_pt)
+
+
+def _collect_display_formula(lines: list[str], start: int) -> tuple[int, str]:
+    stripped = lines[start].strip()
+    if stripped.startswith("$$") and stripped.endswith("$$") and len(stripped) > 4:
+        return start + 1, stripped[2:-2].strip()
+    if stripped.startswith("\\[") and stripped.endswith("\\]") and len(stripped) > 4:
+        return start + 1, stripped[2:-2].strip()
+    opener = "$$" if stripped.startswith("$$") else "\\["
+    closer = "$$" if opener == "$$" else "\\]"
+    parts = [stripped[len(opener):]] if stripped != opener else []
+    index = start + 1
+    while index < len(lines):
+        current = lines[index].strip()
+        if current.endswith(closer):
+            parts.append(current[: -len(closer)])
+            return index + 1, "\n".join(parts).strip()
+        parts.append(lines[index])
+        index += 1
+    return index, "\n".join(parts).strip()
+
+
+def _add_markdown(
+    document: Document,
+    markdown: str,
+    style: DocxStyle,
+    counters: AcademicCounters | None = None,
+) -> None:
+    counters = counters or AcademicCounters(chapter_no=1)
+    lines = markdown.splitlines()
     in_code = False
-    for raw in markdown.splitlines():
-        stripped = raw.strip()
+    index = 0
+    while index < len(lines):
+        stripped = lines[index].strip()
         if stripped.startswith("```"):
             in_code = not in_code
+            index += 1
             continue
         if not stripped or HR_RE.fullmatch(stripped):
+            index += 1
+            continue
+        if in_code:
+            _add_body(document, stripped, style, indent=False)
+            index += 1
             continue
         if stripped.startswith(">"):
             stripped = stripped.lstrip("> ").strip()
             if not stripped:
+                index += 1
                 continue
-        if in_code:
-            _add_body(document, stripped, style, indent=False)
+        if stripped.startswith("$$") or stripped.startswith("\\["):
+            index, latex = _collect_display_formula(lines, index)
+            _add_display_formula(document, latex, style, counters)
+            continue
+        if is_table_caption(stripped) and is_table_row(next_nonempty(lines, index + 1) or ""):
+            title = caption_title(stripped)
+            index, rows = collect_table_rows(lines, index + 1)
+            _add_three_line_table(document, rows, title, style, counters)
+            continue
+        if is_table_row(stripped):
+            index, rows = collect_table_rows(lines, index)
+            _add_three_line_table(document, rows, "", style, counters)
             continue
         heading = HEADING_RE.match(stripped)
         if heading:
             _add_heading(document, heading.group(2).strip(), len(heading.group(1)), style)
-            continue
-        if stripped.startswith("|"):
-            if re.fullmatch(r"\|?[\s:|-]+\|?", stripped):
-                continue
-            cells = [cell.strip() for cell in stripped.strip("|").split("|")]
-            _add_body(document, "    ".join(_plain_text(cell) for cell in cells), style, indent=False)
+            index += 1
             continue
         bullet = UL_RE.match(stripped)
         if bullet:
             _add_body(document, f"• {bullet.group(1).strip()}", style, indent=False)
+            index += 1
             continue
         numbered = OL_RE.match(stripped)
         if numbered:
             _add_body(document, stripped, style, indent=False)
+            index += 1
             continue
         _add_body(document, stripped, style)
+        index += 1
 
 
 def _add_centered(document: Document, text: str, style: DocxStyle, size_pt: float) -> None:
@@ -322,11 +537,15 @@ def build_docx(
     _add_title(document, project.title, style)
     _add_abstracts(document, paper_abstract, style)
     by_id = chapters_by_id(chapters)
+    counters = AcademicCounters()
     for chapter in chapters:
         if covered_by_ancestor_draft(chapter, by_id, drafts):
             continue
+        if chapter.level <= 1:
+            counters.chapter_no += 1
+            counters.table_no = 0
         _add_heading(document, chapter.title, max(chapter.level, 1), style)
         draft = drafts.get(chapter.id)
         if draft:
-            _add_markdown(document, draft_body(chapter, draft), style)
+            _add_markdown(document, draft_body(chapter, draft), style, counters)
     document.save(output_path)
