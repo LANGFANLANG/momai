@@ -12,6 +12,7 @@ import type {
   DraftMode,
   ExportRecord,
 } from '@/types/chapter'
+import type { DocxStyle, PaperAbstract, PaperAbstractUpdate } from '@/types/project'
 
 const json = (method: string, body?: unknown): RequestInit => ({
   method,
@@ -48,6 +49,12 @@ export const workflowApi = {
   fixIssue: (projectId: string, issueId: string) =>
     request<ConsistencyFixResult>(`/api/projects/${projectId}/review/${issueId}/fix`, { method: 'POST' }),
   exportMarkdown: (projectId: string) => request<ExportRecord>(`/api/projects/${projectId}/export/markdown`, { method: 'POST' }),
-  exportDocx: (projectId: string) => request<ExportRecord>(`/api/projects/${projectId}/export/docx`, { method: 'POST' }),
+  exportDocx: (projectId: string, style?: DocxStyle) =>
+    request<ExportRecord>(`/api/projects/${projectId}/export/docx`, json('POST', { style })),
   downloadUrl: (exportId: string) => `${API_BASE_URL}/api/exports/${exportId}/download`,
+  getAbstract: (projectId: string) => request<PaperAbstract>(`/api/projects/${projectId}/abstract`),
+  saveAbstract: (projectId: string, payload: PaperAbstractUpdate) =>
+    request<PaperAbstract>(`/api/projects/${projectId}/abstract`, json('PATCH', payload)),
+  generateAbstract: (projectId: string) =>
+    request<PaperAbstract>(`/api/projects/${projectId}/abstract/generate`, { method: 'POST' }),
 }

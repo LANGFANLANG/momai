@@ -205,3 +205,52 @@ def test_summary_generation_without_draft_returns_actionable_409(monkeypatch):
     assert response.json() == {
         "detail": "Generate a chapter draft before generating its summary."
     }
+
+
+def test_paper_abstract_api_generate_get_and_patch(monkeypatch):
+    monkeypatch.setattr(generation, "get_llm_client", MockLlmClient)
+    client, _ = create_client()
+    project_id = client.post(
+        "/api/projects",
+        json={"type": "thesis", "title": "Hive 电商数仓", "language": "zh"},
+    ).json()["id"]
+    chapter_id = client.post(
+        f"/api/projects/{project_id}/outline/generate", json={}
+    ).json()[0]["id"]
+
+    missing = client.get(f"/api/projects/{project_id}/abstract")
+    assert missing.status_code == 404
+
+    without_draft = client.post(f"/api/projects/{project_id}/abstract/generate")
+    assert without_draft.status_code == 409
+
+    client.post(f"/api/chapters/{chapter_id}/drafts/generate", json={"mode": "generate"})
+    generated = client.post(f"/api/projects/{project_id}/abstract/generate")
+    assert generated.status_code == 200
+    body = generated.json()
+    assert "本文围绕" in body["abstract_zh"]
+    assert body["abstract_en"]
+    assert body["keywords_zh"]
+
+    saved = client.patch(
+        f"/api/projects/{project_id}/abstract",
+        json={
+            "abstract_zh": "手工修改后的中文摘要。",
+            "keywords_zh": ["Hive", "电商"],
+        },
+    )
+    assert saved.status_code == 200
+    assert saved.json()["abstract_zh"] == "手工修改后的中文摘要。"
+    assert saved.json()["id"] == body["id"]
+
+    fetched = client.get(f"/api/projects/{project_id}/abstract")
+    assert fetched.status_code == 200
+    assert fetched.json()["abstract_zh"] == "手工修改后的中文摘要。"
+    assert fetched.json()["keywords_zh"] == ["Hive", "电商"]
+
+    markdown = client.post(f"/api/projects/{project_id}/export/markdown")
+    assert markdown.status_code == 200
+    content = Path(markdown.json()["file_url"]).read_text(encoding="utf-8")
+    assert content.index("# 摘要") < content.index("# Abstract")
+    assert "手工修改后的中文摘要。" in content
+    assert "关键词：Hive；电商" in content

@@ -1,7 +1,8 @@
+import json
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
@@ -21,8 +22,17 @@ def export_markdown(project_id: str, db: DbSession):
 
 
 @router.post("/api/projects/{project_id}/export/docx", response_model=ExportRecordRead)
-def export_docx(project_id: str, db: DbSession):
-    return ExportService.export_docx(db, project_id)
+async def export_docx(project_id: str, request: Request, db: DbSession):
+    override = None
+    raw = await request.body()
+    if raw:
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError:
+            payload = None
+        if isinstance(payload, dict):
+            override = payload.get("style")
+    return ExportService.export_docx(db, project_id, override)
 
 
 @router.get("/api/exports/{export_id}/download")

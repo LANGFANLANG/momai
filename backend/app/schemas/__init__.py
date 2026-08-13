@@ -1,4 +1,5 @@
 from app.schemas.project import ProjectCreate, ProjectRead, ProjectUpdate
+from app.schemas.abstract import PaperAbstractGeneration
 from app.schemas.brief import ProjectBriefGeneration
 from app.schemas.chapter import (
     ChapterGeneration,
@@ -21,6 +22,7 @@ __all__ = [
     "ConsistencyIssueGeneration",
     "ConsistencyReviewGeneration",
     "OutlineGeneration",
+    "PaperAbstractGeneration",
     "ProjectBriefGeneration",
     "ProjectCreate",
     "ProjectRead",

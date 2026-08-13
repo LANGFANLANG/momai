@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.db.models import Chapter, ChapterDraft, ExportRecord
 from app.export.docx import build_docx
+from app.export.docx_style import resolve_docx_style
 from app.export.markdown import build_markdown
 from app.services.chapters import list_chapters_in_hierarchy_order
 from app.services.projects import ProjectService
@@ -62,7 +63,10 @@ class ExportService:
         db.add(record)
         db.flush()
         output_path = cls._output_path(project.title, record.id, ".md")
-        output_path.write_text(build_markdown(project, chapters, drafts), encoding="utf-8")
+        output_path.write_text(
+            build_markdown(project, chapters, drafts, project.paper_abstract),
+            encoding="utf-8",
+        )
         record.file_url = str(output_path)
         project.status = "export_ready"
         db.commit()
@@ -70,14 +74,21 @@ class ExportService:
         return record
 
     @classmethod
-    def export_docx(cls, db: Session, project_id: str) -> ExportRecord:
+    def export_docx(cls, db: Session, project_id: str, style_override: dict | None = None) -> ExportRecord:
         project = ProjectService.get_project_or_404(db, project_id)
         chapters, drafts = cls._chapters_and_drafts(db, project.id)
         record = ExportRecord(project_id=project.id, format="docx", file_url="")
         db.add(record)
         db.flush()
         output_path = cls._output_path(project.title, record.id, ".docx")
-        build_docx(output_path, project, chapters, drafts)
+        build_docx(
+            output_path,
+            project,
+            chapters,
+            drafts,
+            resolve_docx_style(project, style_override),
+            project.paper_abstract,
+        )
         record.file_url = str(output_path)
         project.status = "export_ready"
         db.commit()

@@ -121,6 +121,33 @@ CHAPTER_SUMMARY_PROMPT = """你是一个论文上下文压缩助手。
 }}
 """
 
+PAPER_ABSTRACT_PROMPT = """你是一个本科论文和课程设计报告摘要写作助手。
+
+任务：根据论文标题、Project Brief 和已完成章节正文，生成中英文摘要、英文标题和关键词。摘要是文前独立内容，不是正文章节。
+
+写作类型：{project_type}
+中文标题：{project_title}
+Project Brief：{project_brief}
+章节正文：{chapter_drafts}
+
+要求：
+1. abstract_zh 用中文概括研究背景、方法、主要工作和结论，约 300–500 字，不要写成章节目录。
+2. abstract_en 与中文摘要内容对应，使用规范学术英语。
+3. title_en 是中文标题的准确英译，专有名词保持通行译法。
+4. keywords_zh 给出 3–6 个中文关键词；keywords_en 与之对应。
+5. 不得编造章节正文中没有的实验结果或数据。
+6. 输出 JSON，不要输出 Markdown。
+
+输出结构：
+{{
+  "title_en": "",
+  "abstract_zh": "",
+  "abstract_en": "",
+  "keywords_zh": [],
+  "keywords_en": []
+}}
+"""
+
 CONSISTENCY_REVIEW_PROMPT = """你是一个论文和课程设计报告审稿助手。
 
 任务：检查全文初稿在结构、事实、术语和章节衔接上的一致性。

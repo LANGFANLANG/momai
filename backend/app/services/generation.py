@@ -11,6 +11,7 @@ from app.ai.graphs import (
     build_consistency_fix_workflow,
     build_consistency_review_workflow,
     build_outline_workflow,
+    build_paper_abstract_workflow,
     build_relations_workflow,
 )
 from app.ai.prompt_payloads import (
@@ -31,6 +32,7 @@ from app.ai.prompts import (
     CONSISTENCY_FIX_PROMPT,
     CONSISTENCY_REVIEW_PROMPT,
     OUTLINE_PROMPT,
+    PAPER_ABSTRACT_PROMPT,
     RELATION_PROMPT,
 )
 from app.db.models import (
@@ -39,8 +41,10 @@ from app.db.models import (
     ChapterRelation,
     ChapterSummary,
     ConsistencyIssue,
+    PaperAbstract,
     ProjectBrief,
 )
+from app.schemas.abstract import PaperAbstractGeneration
 from app.schemas.brief import ProjectBriefGeneration
 from app.schemas.chapter import (
     ChapterGeneration,
@@ -499,6 +503,54 @@ class GenerationService:
             "result"
         ]
         return cls._commit_and_refresh(db, ChapterSummary(chapter_id=chapter.id, **data.model_dump()))
+
+    @classmethod
+    def generate_paper_abstract(
+        cls, db: Session, project_id: str, client: LlmClient | None = None
+    ) -> PaperAbstract:
+        project = ProjectService.get_project_or_404(db, project_id)
+        chapters = list_chapters_in_hierarchy_order(db, project.id)
+        draft_by_chapter = cls._latest_drafts_by_chapter(db, project.id)
+        if not draft_by_chapter:
+            raise ChapterDraftRequired(
+                "Generate chapter drafts before generating the paper abstract."
+            )
+        prompt = PAPER_ABSTRACT_PROMPT.format(
+            project_type=project.type,
+            project_title=project.title,
+            project_brief=brief_payload(project.brief),
+            chapter_drafts=as_prompt_json(
+                cls._draft_prompt_context(chapters, draft_by_chapter)
+            ),
+        )
+        llm = cls._client(client)
+
+        def generate(state):
+            if isinstance(llm, MockLlmClient):
+                modules = (project.brief.modules if project.brief else None) or []
+                module_text = "、".join(modules) if modules else "相关模块"
+                goal = (project.brief.goal if project.brief else None) or f"完成《{project.title}》"
+                data = PaperAbstractGeneration(
+                    title_en=project.title,
+                    abstract_zh=(
+                        f"本文围绕《{project.title}》展开研究。{goal}"
+                        f"主要工作包括{module_text}。"
+                    ),
+                    abstract_en=f"This paper studies {project.title}. {goal}",
+                    keywords_zh=modules[:4] or [project.title],
+                    keywords_en=modules[:4] or [project.title],
+                )
+            else:
+                data = cls._validate_generation(
+                    llm.complete_json(state["prompt"]), PaperAbstractGeneration
+                )
+            return {**state, "result": data}
+
+        data = build_paper_abstract_workflow(generate).invoke({"prompt": prompt})["result"]
+        abstract = project.paper_abstract or PaperAbstract(project_id=project.id)
+        for field, value in data.model_dump().items():
+            setattr(abstract, field, value)
+        return cls._commit_and_refresh(db, abstract)
 
     @classmethod
     def review_consistency(cls, db: Session, project_id: str, client: LlmClient | None = None) -> list[ConsistencyIssue]:

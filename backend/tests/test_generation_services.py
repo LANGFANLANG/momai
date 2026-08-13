@@ -10,9 +10,11 @@ from app.db.models import (
     Project,
     ProjectBrief,
     ProjectContext,
+    PaperAbstract,
 )
 from app.ai.llm import LlmClient, MockLlmClient
 from app.services.generation import (
+    ChapterDraftRequired,
     ConsistencyFixConflict,
     GenerationService,
     OutlineRegenerationConflict,
@@ -597,3 +599,82 @@ def test_fix_consistency_issue_rewrites_parent_draft_for_child_title(db_session)
     assert "Hive环境搭建" in client.markdown_prompt
     assert "环境未介绍" in client.markdown_prompt
     assert "先介绍 Hive 环境再建表" in client.markdown_prompt
+
+
+def test_generate_paper_abstract_requires_drafts(db_session):
+    project = Project(type="thesis", title="No drafts", language="zh")
+    db_session.add(project)
+    db_session.commit()
+
+    with pytest.raises(ChapterDraftRequired):
+        GenerationService.generate_paper_abstract(db_session, project.id, MockLlmClient())
+
+
+def test_generate_paper_abstract_persists_llm_output(db_session):
+    project = Project(type="thesis", title="Hive 电商数仓", language="zh")
+    chapter = Chapter(project=project, title="绪论", level=1, order=1)
+    draft = ChapterDraft(
+        chapter=chapter,
+        version=1,
+        content="# 绪论\n\n介绍电商数据仓库背景。",
+        generation_mode="generate",
+    )
+    db_session.add_all([project, chapter, draft])
+    db_session.commit()
+    client = RecordingJsonClient(
+        {
+            "title_en": "E-commerce Data Warehouse Based on Hive",
+            "abstract_zh": "本文设计并实现了基于 Hive 的电商数据仓库。",
+            "abstract_en": "This paper designs a Hive-based e-commerce data warehouse.",
+            "keywords_zh": ["Hive", "数据仓库"],
+            "keywords_en": ["Hive", "data warehouse"],
+        }
+    )
+
+    abstract = GenerationService.generate_paper_abstract(db_session, project.id, client)
+
+    assert abstract.abstract_zh == "本文设计并实现了基于 Hive 的电商数据仓库。"
+    assert abstract.abstract_en.startswith("This paper")
+    assert abstract.keywords_zh == ["Hive", "数据仓库"]
+    assert abstract.keywords_en == ["Hive", "data warehouse"]
+    assert db_session.get(PaperAbstract, abstract.id) is not None
+    assert "Hive 电商数仓" in client.prompt
+    assert "介绍电商数据仓库背景" in client.prompt
+    db_session.refresh(project)
+    assert project.paper_abstract.id == abstract.id
+
+
+def test_generate_paper_abstract_overwrites_existing(db_session):
+    project = Project(type="thesis", title="Overwrite", language="zh")
+    chapter = Chapter(project=project, title="绪论", level=1, order=1)
+    draft = ChapterDraft(
+        chapter=chapter, version=1, content="正文", generation_mode="generate"
+    )
+    existing = PaperAbstract(
+        project=project,
+        abstract_zh="旧摘要",
+        abstract_en="old",
+        keywords_zh=["旧"],
+        keywords_en=["old"],
+    )
+    db_session.add_all([project, chapter, draft, existing])
+    db_session.commit()
+    original_id = existing.id
+    client = ScriptedLlmClient(
+        [
+            {
+                "title_en": "Overwrite",
+                "abstract_zh": "新摘要",
+                "abstract_en": "new",
+                "keywords_zh": ["新"],
+                "keywords_en": ["new"],
+            }
+        ],
+        "",
+    )
+
+    abstract = GenerationService.generate_paper_abstract(db_session, project.id, client)
+
+    assert abstract.id == original_id
+    assert abstract.abstract_zh == "新摘要"
+    assert db_session.scalar(select(func.count()).select_from(PaperAbstract)) == 1

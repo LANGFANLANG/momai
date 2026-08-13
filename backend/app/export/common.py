@@ -1,4 +1,4 @@
-from app.db.models import Chapter, ChapterDraft
+from app.db.models import Chapter, ChapterDraft, PaperAbstract
 from app.services.markdown_sections import extract_markdown_section, titles_match
 
 
@@ -38,6 +38,23 @@ def heading_matches_chapter(line: str, chapter: Chapter) -> bool:
         return False
     title = stripped.lstrip("#").strip().rstrip("#").strip()
     return titles_match(title, chapter.title)
+
+
+def join_keywords(keywords: list[str] | None, *, chinese: bool) -> str:
+    items = [item.strip() for item in keywords or [] if item and item.strip()]
+    if not items:
+        return ""
+    return ("；" if chinese else "; ").join(items)
+
+
+def abstract_has_content(abstract: PaperAbstract | None) -> bool:
+    if abstract is None:
+        return False
+    return bool(
+        (abstract.abstract_zh or "").strip()
+        or (abstract.abstract_en or "").strip()
+        or (abstract.title_en or "").strip()
+    )
 
 
 def draft_body(chapter: Chapter, draft: ChapterDraft) -> str:
